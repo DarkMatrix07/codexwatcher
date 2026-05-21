@@ -1,0 +1,27 @@
+{
+  "name": "codexwatcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Quota-aware Codex development runner controlled through Telegram.",
+  "bin": {
+    "codexwatcher": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js start",
+    "test": "node --test dist/tests/*.test.js",
+    "check": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

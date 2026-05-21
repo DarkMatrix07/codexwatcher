@@ -1,0 +1,18 @@
+{
+  "workspaceRoots": ["../"],
+  "telegram": {
+    "botToken": "",
+    "mode": "polling",
+    "publicWebhookUrl": ""
+  },
+  "brain": {
+    "source": "openclaw",
+    "openClawAgentId": "main"
+  },
+  "codex": {
+    "cautionThresholdPercent": 70,
+    "pauseThresholdPercent": 90,
+    "maxAutoCycles": 10,
+    "maxRepairCycles": 1
+  }
+}
