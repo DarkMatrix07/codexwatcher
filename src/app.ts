@@ -100,6 +100,18 @@ export class CodexKeeperApp {
       return;
     }
     if (intent.action === "resume" && !intent.taskText && !message.fileText) {
+      const state = await loadState(resolved.repo.path);
+      if (state?.status === "paused" && !state.currentTask) {
+        await saveState(resolved.repo.path, {
+          ...state,
+          activeChatId: message.chatId,
+          status: "idle",
+          resumeNote: "Resumed by user. No active task to continue.",
+          updatedAt: new Date().toISOString(),
+        });
+        await this.reply(message.chatId, `${resolved.repo.name} is resumed. There is no active task to continue.`);
+        return;
+      }
       await this.runner.runAutoCycles(message.chatId, resolved.repo.path, resolved.repo.name);
       return;
     }
