@@ -82,7 +82,7 @@ Rules:
 - Do not repeat completed work from .keeper/progress.md.
 - Update .keeper/progress.md and .keeper/memory.md.
 - Run relevant validation if available.
-- Commit completed safe progress when possible.
+- Do not create git commits. CodexWatcher will commit after the report passes review.
 - Stop after this task or the smallest safe checkpoint.
 
 Before you stop, write a machine-readable report to ${reportPath}.

@@ -255,7 +255,10 @@ export class CycleRunner {
 
     const review = await this.reviewReport(params.repoPath, params.taskTitle, report);
     await saveAgentReview(params.repoPath, params.cycleId, review);
-    const complete = report.status === "completed" && review.taskComplete && review.nextAction === "commit_and_continue";
+    const complete =
+      report.status === "completed" &&
+      review.taskComplete &&
+      (review.nextAction === "commit_and_continue" || review.nextAction === "sleep");
     const nextState: KeeperState = {
       projectId: params.projectId,
       repoPath: params.repoPath,
@@ -272,7 +275,7 @@ export class CycleRunner {
       nextState.resumeNote = `Last completed task: ${params.taskTitle}. Last commit: ${commit ?? "none"}.`;
       await saveState(params.repoPath, nextState);
       await this.notify(params.chatId, `Task done: ${params.taskTitle}\nCommit: ${commit ?? "no changes"}\n${review.reply}`);
-      return "continue";
+      return report.nextSuggestedTask ? "continue" : "stop";
     }
 
     await saveState(params.repoPath, nextState);

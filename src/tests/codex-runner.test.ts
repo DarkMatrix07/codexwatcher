@@ -28,4 +28,5 @@ test("prompt requires report path", () => {
     quotaMode: "work",
   });
   assert.match(prompt, /\.keeper\/cycles\/001\/codex-report\.json/);
+  assert.match(prompt, /Do not create git commits/);
 });
