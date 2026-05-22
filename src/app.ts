@@ -300,7 +300,7 @@ export class CodexKeeperApp {
 
   private isStatusRequest(text: string): boolean {
     const normalized = text.toLowerCase();
-    return /\b(status|progress|implemented|completed|done|checkpoint|checkpoints)\b/.test(normalized);
+    return /\b(status|progress|implemented|completed|done|finish|finished|checkpoint|checkpoints)\b/.test(normalized);
   }
 
   private isGreeting(text: string): boolean {
@@ -319,7 +319,7 @@ export class CodexKeeperApp {
     if (this.isProjectOnlyReply(text, repo)) return true;
     if (!this.findMentionedProject(text, [repo])) return false;
     const normalized = text.toLowerCase();
-    const hasSelectionCue = /\b(ok|okay|yes|yeah|yep|its|it's|it is|use|select|choose|that one|this one)\b/.test(
+    const hasSelectionCue = /\b(ok|okay|yes|yeah|yep|its|it's|it is|use|select|choose|switch|change|that one|this one)\b/.test(
       normalized,
     );
     const hasWorkCue = /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
