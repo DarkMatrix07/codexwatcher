@@ -148,7 +148,7 @@ export class CodexKeeperApp {
       await this.reply(message.chatId, intent.reply);
       return;
     }
-    if (intent.action === "start_development" && repos.length > 1 && !mentionedProject) {
+    if (intent.action === "start_development" && repos.length > 1 && !mentionedProject && !activeProject) {
       await this.reply(
         message.chatId,
         `Which project should I use? I found: ${repos.map((repo) => repo.name).join(", ")}.`,
