@@ -45,6 +45,7 @@ export async function runCoreHarness(): Promise<void> {
     results.push(await testMissingReport(context));
     results.push(await testFailedValidationGate(context));
     results.push(await testResumeSession(context));
+    results.push(await testDirtyRepoCommitBlock(context));
   } finally {
     restoreHarnessEnv(context);
     if (process.env.CODEXWATCHER_KEEP_HARNESS !== "1") {
@@ -193,6 +194,37 @@ async function testResumeSession(context: HarnessContext): Promise<HarnessResult
     [state?.status === "idle", `state is ${state?.status}`],
     [argsLog.includes(`resume ${MOCK_SESSION_ID}`), `args log includes resume: ${JSON.stringify(argsLog)}`],
     [log.stdout.includes("codexwatcher:"), "completion was committed after resume"],
+  ]);
+}
+
+async function testDirtyRepoCommitBlock(context: HarnessContext): Promise<HarnessResult> {
+  const repo = await createRepo(context, "demo-dirty-repo", {
+    "README.md": "# Demo Dirty Repo\n",
+    "src/app.js": "export const ok = true;\n",
+  });
+  await writeFile(path.join(repo, "README.md"), "# Demo Dirty Repo\n\nUSER UNCOMMITTED CHANGE\n", "utf8");
+  process.env.CODEXWATCHER_USAGE_FIXTURE = usageFixture(20);
+  process.env.CODEXWATCHER_MOCK_CODEX_MODE = "resume-success";
+  const runner = createRunner(context);
+  const before = await currentCommit(repo);
+
+  await runner.startTask({
+    chatId: 0,
+    repoPath: repo,
+    projectId: "demo-dirty-repo",
+    taskText: "Update README.md with a small agent change.",
+  });
+
+  const state = await loadState(repo);
+  const after = await currentCommit(repo);
+  const memory = await readFile(path.join(repo, ".keeper", "memory.md"), "utf8");
+  const status = await runCommand("git", ["status", "--short"], { cwd: repo, timeoutMs: 30_000 });
+  return expect("dirty repo commit block", [
+    [state?.status === "blocked", `state is ${state?.status}`],
+    [state?.resumeNote?.includes("pre-existing uncommitted changes") === true, `resume note: ${state?.resumeNote}`],
+    [memory.includes("Commit Blocked Cycle"), "memory records commit block"],
+    [before === after, "no commit was created"],
+    [status.stdout.includes("README.md"), `dirty status remains: ${JSON.stringify(status.stdout)}`],
   ]);
 }
 

@@ -43,6 +43,7 @@ export type KeeperState = {
   lastKnownUsagePercent?: number;
   nextWakeAt?: string;
   resumeNote?: string;
+  baselineGitStatus?: string;
   updatedAt: string;
 };
 

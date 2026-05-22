@@ -37,6 +37,8 @@ export class CycleRunner {
     taskText: string;
     fileText?: string;
   }): Promise<void> {
+    const baselineGit = await getGitSnapshot(params.repoPath);
+    const baselineUserGitStatus = filterKeeperStatus(baselineGit.status);
     await ensureKeeperFiles(params.repoPath);
     const task = [params.taskText, params.fileText].filter(Boolean).join("\n\n--- uploaded file ---\n\n");
     await writeKeeperFile(params.repoPath, "task.md", `# Task\n\n${task.trim()}\n`);
@@ -49,6 +51,7 @@ export class CycleRunner {
       currentTask: params.taskText,
       codexSessionId: previous?.codexSessionId,
       lastCycleId: previous?.lastCycleId,
+      baselineGitStatus: baselineUserGitStatus,
       updatedAt: new Date().toISOString(),
     });
     await this.notify(
@@ -271,6 +274,24 @@ export class CycleRunner {
     };
 
     if (complete) {
+      if (params.previousState?.baselineGitStatus?.trim()) {
+        await appendKeeperFile(
+          params.repoPath,
+          "memory.md",
+          `\n## Commit Blocked Cycle ${params.cycleId}\n\nTask: ${params.taskTitle}\nReason: repo had pre-existing changes before CodexWatcher started this task.\nBaseline git status:\n\`\`\`text\n${params.previousState.baselineGitStatus}\n\`\`\`\n`,
+        );
+        await saveState(params.repoPath, {
+          ...nextState,
+          status: "blocked",
+          currentTask: params.taskTitle,
+          resumeNote: "Commit blocked because the repo had pre-existing uncommitted changes.",
+        });
+        await this.notify(
+          params.chatId,
+          `Task passed review, but I did not commit because ${params.projectId} had uncommitted changes before I started. Please review/commit/stash those changes, then ask me to continue.`,
+        );
+        return "stop";
+      }
       nextState.resumeNote = `Last completed task: ${params.taskTitle}.`;
       await saveState(params.repoPath, nextState);
       const commit = await commitAll(params.repoPath, `codexwatcher: ${params.taskTitle}`);
@@ -382,4 +403,14 @@ Fix only these issues, update .keeper/progress.md and .keeper/memory.md, write t
     timer.unref?.();
     this.wakeTimers.set(key, timer);
   }
+}
+
+function filterKeeperStatus(status: string): string {
+  return status
+    .split(/\r?\n/)
+    .filter((line) => {
+      const file = line.slice(3).trim().replace(/\\/g, "/");
+      return file && !file.startsWith(".keeper/");
+    })
+    .join("\n");
 }
