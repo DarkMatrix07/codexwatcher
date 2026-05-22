@@ -271,9 +271,9 @@ export class CycleRunner {
     };
 
     if (complete) {
-      const commit = await commitAll(params.repoPath, `codexwatcher: ${params.taskTitle}`);
-      nextState.resumeNote = `Last completed task: ${params.taskTitle}. Last commit: ${commit ?? "none"}.`;
+      nextState.resumeNote = `Last completed task: ${params.taskTitle}.`;
       await saveState(params.repoPath, nextState);
+      const commit = await commitAll(params.repoPath, `codexwatcher: ${params.taskTitle}`);
       await this.notify(params.chatId, `Task done: ${params.taskTitle}\nCommit: ${commit ?? "no changes"}\n${review.reply}`);
       return report.nextSuggestedTask ? "continue" : "stop";
     }
