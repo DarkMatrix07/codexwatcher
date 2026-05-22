@@ -87,7 +87,7 @@ export class BrainClient {
         role: "user",
         content: JSON.stringify({
           instructions:
-            "taskComplete requires Codex report evidence plus git/progress consistency. If incomplete, choose ask_codex_to_fix.",
+            "taskComplete requires Codex report evidence plus git/progress consistency. .keeper changes are expected CodexWatcher metadata and should not block completion by themselves. Focus on whether project/source files outside .keeper match the task and whether required .keeper progress/report evidence exists. If incomplete, choose ask_codex_to_fix.",
           input,
           schema: {
             taskComplete: "boolean",
