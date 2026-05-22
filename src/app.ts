@@ -1,14 +1,21 @@
 import { BrainClient } from "./brain/brain-client.js";
 import { CycleRunner } from "./cycle/cycle-runner.js";
+import { getGitSnapshot } from "./git/git.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
 import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
-import { loadState, saveState } from "./state/keeper-files.js";
+import { loadState, readKeeperFile, saveState } from "./state/keeper-files.js";
+
+type PendingClarification = {
+  action: "status";
+  createdAt: number;
+};
 
 export class CodexKeeperApp {
   private readonly brain: BrainClient;
   private readonly telegram: TelegramClient;
   private readonly runner: CycleRunner;
+  private readonly pendingByChatId = new Map<number, PendingClarification>();
 
   constructor(private readonly config: KeeperConfig) {
     this.brain = new BrainClient(config.brain);
@@ -39,6 +46,30 @@ export class CodexKeeperApp {
     const repos = await discoverRepos(this.config.workspaceRoots);
     const activeProject = await this.findActiveProject(message.chatId, repos);
     const mentionedProject = this.findMentionedProject(message.text, repos);
+    const pending = this.getPending(message.chatId);
+    if (pending?.action === "status" && mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
+      this.pendingByChatId.delete(message.chatId);
+      await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
+      return;
+    }
+    if (this.isStatusRequest(message.text)) {
+      if (mentionedProject) {
+        await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
+        return;
+      }
+      if (repos.length > 1) {
+        this.pendingByChatId.set(message.chatId, { action: "status", createdAt: Date.now() });
+        await this.reply(
+          message.chatId,
+          `Which project would you like the status for? Available projects: ${repos.map((repo) => repo.name).join(", ")}.`,
+        );
+        return;
+      }
+      if (repos.length === 1) {
+        await this.reply(message.chatId, await this.buildProjectStatus(repos[0]));
+        return;
+      }
+    }
     const intent = await this.brain.interpret({
       messageText: message.text,
       fileText: message.fileText,
@@ -179,6 +210,30 @@ export class CodexKeeperApp {
     return lines.join("\n").trim() || "CodexWatcher is running. No project state yet.";
   }
 
+  private async buildProjectStatus(repo: { name: string; path: string }): Promise<string> {
+    const [state, git, progress] = await Promise.all([
+      loadState(repo.path),
+      getGitSnapshot(repo.path).catch(() => null),
+      readKeeperFile(repo.path, "progress.md").catch(() => ""),
+    ]);
+    const progressLines = summarizeMarkdown(progress);
+    const lines = [`CodexWatcher status for ${repo.name}:`, ""];
+    lines.push(`State: ${state?.status ?? "no watcher state yet"}`);
+    if (state?.lastCycleId) lines.push(`Last cycle: ${state.lastCycleId}`);
+    if (state?.resumeNote) lines.push(`Note: ${state.resumeNote}`);
+    if (state?.nextWakeAt) lines.push(`Next wake: ${state.nextWakeAt}`);
+    if (git) {
+      lines.push(`Git: ${git.status ? "changes pending" : "clean"}${git.lastCommit ? `, last commit ${git.lastCommit}` : ""}`);
+    }
+    if (progressLines.length) {
+      lines.push("", "Progress:");
+      lines.push(...progressLines.map((line) => `- ${line}`));
+    } else {
+      lines.push("", "Progress: no progress notes yet.");
+    }
+    return lines.join("\n");
+  }
+
   private async restoreSleepingProjects(): Promise<void> {
     const repos = await discoverRepos(this.config.workspaceRoots);
     for (const repo of repos) {
@@ -187,8 +242,37 @@ export class CodexKeeperApp {
       this.runner.scheduleWake(state.activeChatId, repo.path, repo.name, state.nextWakeAt);
     }
   }
+
+  private getPending(chatId: number): PendingClarification | null {
+    const pending = this.pendingByChatId.get(chatId);
+    if (!pending) return null;
+    if (Date.now() - pending.createdAt > 10 * 60_000) {
+      this.pendingByChatId.delete(chatId);
+      return null;
+    }
+    return pending;
+  }
+
+  private isStatusRequest(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return /\b(status|progress|implemented|completed|done|checkpoint|checkpoints)\b/.test(normalized);
+  }
+
+  private isProjectOnlyReply(text: string, repo: RepoCandidate): boolean {
+    const normalized = normalizeProjectText(text);
+    return normalized === normalizeProjectText(repo.name) || normalized === normalizeProjectText(repo.id);
+  }
 }
 
 function normalizeProjectText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function summarizeMarkdown(markdown: string): string[] {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => line.replace(/^[-*]\s*/, "").replace(/^\[[ x]\]\s*/i, ""))
+    .slice(-6);
 }
