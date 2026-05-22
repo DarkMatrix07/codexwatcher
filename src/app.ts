@@ -92,7 +92,8 @@ export class CodexKeeperApp {
       );
       return;
     }
-    if (this.isStatusRequest(message.text)) {
+    const isDevelopment = this.isDevelopmentRequest(message.text);
+    if (this.isStatusRequest(message.text) && !isDevelopment) {
       if (mentionedProject) {
         await this.rememberProject(message.chatId, mentionedProject);
         await appendProjectChatHistory(message.chatId, mentionedProject, { role: "user", text: message.text });
@@ -129,7 +130,7 @@ export class CodexKeeperApp {
         return;
       }
     }
-    if (this.isDevelopmentRequest(message.text)) {
+    if (isDevelopment) {
       if (repos.length > 1 && !mentionedProject && !activeProject) {
         await this.reply(
           message.chatId,
@@ -393,6 +394,9 @@ export class CodexKeeperApp {
 
   private isDevelopmentRequest(text: string): boolean {
     const normalized = text.toLowerCase();
+    if (/\b(update me|tell me|show me)\b.*\b(status|progress|implemented|completed|done|finished)\b/.test(normalized)) {
+      return false;
+    }
     return /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
       normalized,
     );
