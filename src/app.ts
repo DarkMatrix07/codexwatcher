@@ -12,7 +12,13 @@ import {
 } from "./state/chat-state.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
-import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
+import {
+  cloneRepoIntoWorkspace,
+  discoverRepos,
+  extractGitUrl,
+  resolveRepoFromHint,
+  type RepoCandidate,
+} from "./workspace/workspace.js";
 import { loadState, readKeeperFile, saveState } from "./state/keeper-files.js";
 
 export class CodexKeeperApp {
@@ -55,6 +61,40 @@ export class CodexKeeperApp {
     const mentionedProject = this.findMentionedProject(message.text, repos);
     const pending = freshPending(chatContext.pending);
     const contextAfterUser = await appendChatHistory(message.chatId, { role: "user", text: message.text });
+    const gitUrl = extractGitUrl(message.text);
+    if (this.isRepoOnboardingRequest(message.text)) {
+      if (!gitUrl) {
+        await this.reply(message.chatId, "Send me the git repo URL to clone.");
+        return;
+      }
+      const root = this.config.workspaceRoots[0];
+      if (!root) {
+        await this.reply(message.chatId, "No workspace root is configured, so I cannot clone a repo yet.");
+        return;
+      }
+      let cloneResult: Awaited<ReturnType<typeof cloneRepoIntoWorkspace>>;
+      try {
+        cloneResult = await cloneRepoIntoWorkspace(root, gitUrl);
+      } catch (error) {
+        await this.reply(message.chatId, `I could not clone that repo: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      await this.rememberProject(message.chatId, cloneResult.repo);
+      await appendProjectChatHistory(message.chatId, cloneResult.repo, { role: "user", text: message.text });
+      await this.replyForProject(
+        message.chatId,
+        cloneResult.repo,
+        `${cloneResult.cloned ? "Cloned" : "Using existing clone"} ${cloneResult.repo.name}. I will inspect it as the selected project.`,
+      );
+      await this.runner.startTask({
+        chatId: message.chatId,
+        repoPath: cloneResult.repo.path,
+        projectId: cloneResult.repo.name,
+        taskText: message.text,
+        fileText: message.fileText,
+      });
+      return;
+    }
     if (this.isGreeting(message.text)) {
       await this.reply(
         message.chatId,
@@ -406,9 +446,14 @@ export class CodexKeeperApp {
     if (/\b(update me|tell me|show me)\b.*\b(status|progress|implemented|completed|done|finished)\b/.test(normalized)) {
       return false;
     }
-    return /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
+    return /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make|clone)\b/.test(
       normalized,
     );
+  }
+
+  private isRepoOnboardingRequest(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return /\b(clone|checkout|get|pull|download|understand|analyze|analyse|inspect|study)\b/.test(normalized) && !!extractGitUrl(text);
   }
 
   private isVagueDevelopmentRequest(text: string): boolean {

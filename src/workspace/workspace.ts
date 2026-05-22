@@ -1,5 +1,6 @@
-import { readdir, stat, access } from "node:fs/promises";
+import { mkdir, readdir, stat, access } from "node:fs/promises";
 import path from "node:path";
+import { runCommand } from "../exec.js";
 
 export type RepoCandidate = {
   id: string;
@@ -73,8 +74,58 @@ export function resolveRepoFromHint(repos: RepoCandidate[], hint: string | undef
   };
 }
 
+export function extractGitUrl(text: string): string | null {
+  const match = text.match(/\b(?:https?:\/\/|git@|ssh:\/\/|file:\/\/)[^\s<>"']+/i);
+  if (!match) return null;
+  return match[0].replace(/[),.;]+$/g, "");
+}
+
+export function repoNameFromGitUrl(url: string): string {
+  const withoutTrailing = url.replace(/[),.;]+$/g, "").replace(/\/+$/g, "");
+  const last = withoutTrailing.split(/[/:\\]/).filter(Boolean).at(-1) ?? "repo";
+  const withoutGit = last.replace(/\.git$/i, "");
+  const safe = withoutGit.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+  return safe || "repo";
+}
+
+export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: string): Promise<{
+  repo: RepoCandidate;
+  cloned: boolean;
+}> {
+  const root = path.resolve(workspaceRoot);
+  await mkdir(root, { recursive: true });
+  const name = repoNameFromGitUrl(gitUrl);
+  const target = path.join(root, name);
+  if (await exists(target)) {
+    if (await isGitRepo(target)) {
+      return {
+        cloned: false,
+        repo: { id: name.toLowerCase(), name, path: target },
+      };
+    }
+    throw new Error(`Target path already exists and is not a git repo: ${target}`);
+  }
+  const result = await runCommand("git", ["clone", gitUrl, target], { cwd: root, timeoutMs: 10 * 60_000 });
+  if (result.exitCode !== 0) {
+    throw new Error(`git clone failed: ${result.stderr || result.stdout}`);
+  }
+  return {
+    cloned: true,
+    repo: { id: name.toLowerCase(), name, path: target },
+  };
+}
+
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+async function exists(target: string): Promise<boolean> {
+  try {
+    await access(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function dedupeRepos(repos: RepoCandidate[]): RepoCandidate[] {
