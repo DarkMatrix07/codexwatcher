@@ -43,7 +43,7 @@ export class CodexKeeperApp {
     const rememberedProject = chatContext.activeProjectId
       ? repos.find((repo) => repo.id === chatContext.activeProjectId || repo.name === chatContext.activeProjectId)
       : null;
-    const activeProject = rememberedProject ?? (await this.findActiveProject(message.chatId, repos));
+    const activeProject = rememberedProject ?? null;
     const mentionedProject = this.findMentionedProject(message.text, repos);
     const pending = freshPending(chatContext.pending);
     if (pending?.action === "status" && mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
@@ -182,21 +182,6 @@ export class CodexKeeperApp {
       return;
     }
     await this.telegram.sendMessage(chatId, text);
-  }
-
-  private async findActiveProject(
-    chatId: number,
-    repos: Array<{ name: string; path: string }>,
-  ): Promise<{ name: string; path: string } | null> {
-    let latest: ({ name: string; path: string } & { updatedAt: string }) | null = null;
-    for (const repo of repos) {
-      const state = await loadState(repo.path);
-      if (state?.activeChatId !== chatId) continue;
-      if (!latest || state.updatedAt > latest.updatedAt) {
-        latest = { ...repo, updatedAt: state.updatedAt };
-      }
-    }
-    return latest ? { name: latest.name, path: latest.path } : null;
   }
 
   private findMentionedProject(text: string, repos: RepoCandidate[]): RepoCandidate | null {
