@@ -93,6 +93,15 @@ export class CodexKeeperApp {
       return;
     }
     const isDevelopment = this.isDevelopmentRequest(message.text);
+    if (isDevelopment && this.isVagueDevelopmentRequest(message.text)) {
+      await this.reply(
+        message.chatId,
+        activeProject
+          ? `What should I change in ${activeProject.name}? Give me the file, bug, or feature you want handled.`
+          : `What should I work on, and in which project?`,
+      );
+      return;
+    }
     if (this.isStatusRequest(message.text) && !isDevelopment) {
       if (mentionedProject) {
         await this.rememberProject(message.chatId, mentionedProject);
@@ -400,6 +409,14 @@ export class CodexKeeperApp {
     return /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
       normalized,
     );
+  }
+
+  private isVagueDevelopmentRequest(text: string): boolean {
+    const normalized = text
+      .toLowerCase()
+      .replace(/[.!?]+/g, "")
+      .trim();
+    return /^(fix|update|change|make|do|work on|implement|add|build|test|run)\s*(it|that|this)?$/.test(normalized);
   }
 
   private isProjectOnlyReply(text: string, repo: RepoCandidate): boolean {
