@@ -101,6 +101,35 @@ export class BrainClient {
     ]);
   }
 
+  async narrateStatus(input: {
+    projectName: string;
+    state: string;
+    lastCycleId?: string;
+    resumeNote?: string;
+    nextWakeAt?: string;
+    gitSummary?: string;
+    progress: string[];
+  }): Promise<{ reply: string }> {
+    return await this.completeJson<{ reply: string }>([
+      {
+        role: "system",
+        content:
+          "You are CodexWatcher's Telegram voice. Turn project status facts into a concise, natural update. Return only JSON.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          instructions:
+            "Write a friendly but compact Telegram message. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the facts. Include the project name, current state, git summary, and the most useful progress notes.",
+          input,
+          schema: {
+            reply: "string",
+          },
+        }),
+      },
+    ]);
+  }
+
   private async completeJson<T>(messages: BrainMessage[]): Promise<T> {
     if (this.config.api === "anthropic-messages") {
       return await this.completeAnthropicMessages<T>(messages);

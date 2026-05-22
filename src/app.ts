@@ -227,6 +227,21 @@ export class CodexKeeperApp {
       readKeeperFile(repo.path, "progress.md").catch(() => ""),
     ]);
     const progressLines = summarizeMarkdown(progress);
+    const facts = {
+      projectName: repo.name,
+      state: state?.status ?? "no watcher state yet",
+      lastCycleId: state?.lastCycleId,
+      resumeNote: state?.resumeNote,
+      nextWakeAt: state?.nextWakeAt,
+      gitSummary: git ? `${git.status ? "changes pending" : "clean"}${git.lastCommit ? `, last commit ${git.lastCommit}` : ""}` : undefined,
+      progress: progressLines,
+    };
+    try {
+      const narrated = await this.brain.narrateStatus(facts);
+      if (narrated.reply.trim()) return narrated.reply.trim();
+    } catch (error) {
+      console.error("Status narration failed:", error instanceof Error ? error.message : error);
+    }
     const lines = [`CodexWatcher status for ${repo.name}:`, ""];
     lines.push(`State: ${state?.status ?? "no watcher state yet"}`);
     if (state?.lastCycleId) lines.push(`Last cycle: ${state.lastCycleId}`);
