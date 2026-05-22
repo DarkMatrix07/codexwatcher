@@ -2,7 +2,7 @@ import { BrainClient } from "./brain/brain-client.js";
 import { CycleRunner } from "./cycle/cycle-runner.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
-import { discoverRepos, resolveRepoFromHint } from "./workspace/workspace.js";
+import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
 import { loadState, saveState } from "./state/keeper-files.js";
 
 export class CodexKeeperApp {
@@ -38,6 +38,7 @@ export class CodexKeeperApp {
     }
     const repos = await discoverRepos(this.config.workspaceRoots);
     const activeProject = await this.findActiveProject(message.chatId, repos);
+    const mentionedProject = this.findMentionedProject(message.text, repos);
     const intent = await this.brain.interpret({
       messageText: message.text,
       fileText: message.fileText,
@@ -53,12 +54,17 @@ export class CodexKeeperApp {
       return;
     }
     if (intent.action === "pause") {
-      if (activeProject) {
-        const state = await loadState(activeProject.path);
-        await saveState(activeProject.path, {
+      const repo = mentionedProject ?? activeProject;
+      if (!repo) {
+        await this.reply(message.chatId, "Which project should I pause?");
+        return;
+      }
+      {
+        const state = await loadState(repo.path);
+        await saveState(repo.path, {
           ...(state ?? {
-            projectId: activeProject.name,
-            repoPath: activeProject.path,
+            projectId: repo.name,
+            repoPath: repo.path,
             updatedAt: new Date().toISOString(),
           }),
           activeChatId: message.chatId,
@@ -75,7 +81,16 @@ export class CodexKeeperApp {
       await this.reply(message.chatId, intent.reply);
       return;
     }
-    const resolved = resolveRepoFromHint(repos, intent.projectHint ?? activeProject?.name);
+    if (intent.action === "start_development" && repos.length > 1 && !mentionedProject) {
+      await this.reply(
+        message.chatId,
+        `Which project should I use? I found: ${repos.map((repo) => repo.name).join(", ")}.`,
+      );
+      return;
+    }
+    const resolved = mentionedProject
+      ? { repo: mentionedProject, matches: [mentionedProject] }
+      : resolveRepoFromHint(repos, intent.projectHint ?? activeProject?.name);
     if (!resolved.repo) {
       const choices = resolved.matches.map((repo) => repo.name).join(", ");
       await this.reply(
@@ -114,11 +129,25 @@ export class CodexKeeperApp {
     chatId: number,
     repos: Array<{ name: string; path: string }>,
   ): Promise<{ name: string; path: string } | null> {
+    let latest: ({ name: string; path: string } & { updatedAt: string }) | null = null;
     for (const repo of repos) {
       const state = await loadState(repo.path);
-      if (state?.activeChatId === chatId) return repo;
+      if (state?.activeChatId !== chatId) continue;
+      if (!latest || state.updatedAt > latest.updatedAt) {
+        latest = { ...repo, updatedAt: state.updatedAt };
+      }
     }
-    return null;
+    return latest ? { name: latest.name, path: latest.path } : null;
+  }
+
+  private findMentionedProject(text: string, repos: RepoCandidate[]): RepoCandidate | null {
+    const normalizedText = normalizeProjectText(text);
+    const matches = repos.filter((repo) => {
+      const name = normalizeProjectText(repo.name);
+      const id = normalizeProjectText(repo.id);
+      return (name.length >= 3 && normalizedText.includes(name)) || (id.length >= 3 && normalizedText.includes(id));
+    });
+    return matches.length === 1 ? matches[0] : null;
   }
 
   private isAllowedChat(chatId: number): boolean {
@@ -146,4 +175,8 @@ export class CodexKeeperApp {
       this.runner.scheduleWake(state.activeChatId, repo.path, repo.name, state.nextWakeAt);
     }
   }
+}
+
+function normalizeProjectText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
