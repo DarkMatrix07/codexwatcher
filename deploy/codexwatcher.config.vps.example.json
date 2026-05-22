@@ -1,0 +1,28 @@
+{
+  "workspaceRoots": ["/root/codexwatcher-workspaces"],
+  "telegram": {
+    "botToken": "TELEGRAM_BOT_TOKEN",
+    "mode": "polling",
+    "publicWebhookUrl": "",
+    "allowedChatIds": []
+  },
+  "brain": {
+    "provider": "customclaw",
+    "model": "gpt-5.5",
+    "baseUrl": "http://127.0.0.1:3000",
+    "apiKey": "CUSTOM_CLAW_API_KEY",
+    "api": "anthropic-messages",
+    "authHeader": false,
+    "headers": {
+      "Authorization": "Bearer ${CUSTOM_CLAW_API_KEY}",
+      "anthropic-version": "2023-06-01"
+    }
+  },
+  "codex": {
+    "cautionThresholdPercent": 70,
+    "pauseThresholdPercent": 90,
+    "maxAutoCycles": 10,
+    "maxRepairCycles": 1,
+    "sandboxMode": "workspace-write"
+  }
+}

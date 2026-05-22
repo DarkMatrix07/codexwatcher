@@ -379,6 +379,7 @@ Fix only these issues, update .keeper/progress.md and .keeper/memory.md, write t
         await this.runAutoCycles(chatId, repoPath, projectId);
       })();
     }, Math.min(delay, 2_147_483_647));
+    timer.unref?.();
     this.wakeTimers.set(key, timer);
   }
 }

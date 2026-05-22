@@ -15,7 +15,16 @@ node dist/cli.js init
 node dist/cli.js start --config codexwatcher.config.json
 node dist/cli.js dev-message "Use the ecommerce project and implement task.md"
 node dist/cli.js usage
+npm run harness
 ```
+
+`npm run harness` runs deterministic core workflow scenarios with mock Codex and fixture usage:
+
+- quota sleep
+- ambiguous work clarification
+- missing Codex report
+- failed validation gate
+- resume with `codex exec resume <sessionId>`
 
 ## VPS Codex Login
 
@@ -23,6 +32,8 @@ node dist/cli.js usage
 npm i -g @openai/codex@latest
 codex login --device-auth
 ```
+
+For systemd deployment, see [docs/VPS.md](docs/VPS.md).
 
 ## Project State
 

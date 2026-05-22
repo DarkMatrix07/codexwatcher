@@ -19,6 +19,8 @@ type CodexAuth = {
 };
 
 export async function checkCodexUsage(): Promise<CodexUsage> {
+  const fixture = usageViaFixture();
+  if (fixture) return fixture;
   const oauth = await usageViaOAuth();
   if (oauth.source !== "unavailable") return oauth;
   const cli = await usageViaCliRpc().catch((error) => unavailable(error));
@@ -33,6 +35,26 @@ export async function checkCodexUsage(): Promise<CodexUsage> {
     plan: null,
     error: `${oauth.error ?? ""} ${cli.error ?? ""}`.trim() || "Codex usage unavailable.",
   };
+}
+
+function usageViaFixture(): CodexUsage | null {
+  const raw = process.env.CODEXWATCHER_USAGE_FIXTURE;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<CodexUsage>;
+    return {
+      source: parsed.source ?? "oauth",
+      primaryUsedPercent: parsed.primaryUsedPercent ?? null,
+      primaryResetAt: parsed.primaryResetAt ?? null,
+      secondaryUsedPercent: parsed.secondaryUsedPercent ?? null,
+      secondaryResetAt: parsed.secondaryResetAt ?? null,
+      creditsBalance: parsed.creditsBalance ?? null,
+      plan: parsed.plan ?? "fixture",
+      error: parsed.error,
+    };
+  } catch (error) {
+    return unavailable(error);
+  }
 }
 
 async function usageViaOAuth(): Promise<CodexUsage> {

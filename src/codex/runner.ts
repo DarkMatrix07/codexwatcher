@@ -29,7 +29,9 @@ export async function runCodex(
   sessionId?: string,
   options: CodexRunnerOptions = {},
 ): Promise<CodexRunResult> {
-  let result = await runCommand("codex", buildCodexArgs({ sessionId, sandboxMode: options.sandboxMode }), {
+  const command = process.env.CODEXWATCHER_CODEX_COMMAND || "codex";
+  const prefixArgs = parseCodexArgsPrefix(process.env.CODEXWATCHER_CODEX_ARGS_PREFIX);
+  let result = await runCommand(command, [...prefixArgs, ...buildCodexArgs({ sessionId, sandboxMode: options.sandboxMode })], {
     cwd: repoPath,
     input: prompt,
     timeoutMs: 45 * 60_000,
@@ -37,7 +39,7 @@ export async function runCodex(
   let resumeFallbackUsed = false;
   if (sessionId && result.exitCode !== 0) {
     resumeFallbackUsed = true;
-    result = await runCommand("codex", buildCodexArgs({ useLastResume: true, sandboxMode: options.sandboxMode }), {
+    result = await runCommand(command, [...prefixArgs, ...buildCodexArgs({ useLastResume: true, sandboxMode: options.sandboxMode })], {
       cwd: repoPath,
       input: prompt,
       timeoutMs: 45 * 60_000,
@@ -49,6 +51,17 @@ export async function runCodex(
     sessionId: parsedSessionId ?? (resumeFallbackUsed ? undefined : sessionId),
     resumeFallbackUsed,
   };
+}
+
+function parseCodexArgsPrefix(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) return parsed;
+  } catch {
+    // Fall through to whitespace splitting for simple local overrides.
+  }
+  return raw.split(/\s+/).filter(Boolean);
 }
 
 export function buildCodexPrompt(input: {

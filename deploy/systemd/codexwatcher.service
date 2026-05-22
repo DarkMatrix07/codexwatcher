@@ -1,0 +1,22 @@
+[Unit]
+Description=CodexWatcher Telegram agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/codexwatcher
+EnvironmentFile=/etc/codexwatcher/codexwatcher.env
+ExecStart=/usr/bin/node /opt/codexwatcher/dist/cli.js start --config /etc/codexwatcher/codexwatcher.config.json
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+SyslogIdentifier=codexwatcher
+
+# Keep the MVP simple while still reducing accidental filesystem reach.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

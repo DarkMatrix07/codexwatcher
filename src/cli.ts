@@ -4,6 +4,7 @@ import path from "node:path";
 import { CodexKeeperApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { checkCodexUsage } from "./codex/usage.js";
+import { runCoreHarness } from "./harness/core-harness.js";
 import { discoverRepos } from "./workspace/workspace.js";
 
 async function main(): Promise<void> {
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(await discoverRepos(config.workspaceRoots), null, 2));
       break;
     }
+    case "harness":
+      await runCoreHarness();
+      break;
     default:
       printHelp();
   }
@@ -64,6 +68,7 @@ Commands:
   dev-message "text"            Simulate a Telegram message locally
   usage                         Print Codex usage
   repos [--config path]         List discovered git repos
+  harness                       Run deterministic core workflow harness
 `);
 }
 

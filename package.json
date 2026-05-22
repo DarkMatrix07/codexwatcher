@@ -12,6 +12,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js start",
     "test": "node --test dist/tests/*.test.js",
+    "harness": "npm run build && node dist/cli.js harness",
     "check": "npm run build && npm test"
   },
   "engines": {
