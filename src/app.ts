@@ -1,21 +1,16 @@
 import { BrainClient } from "./brain/brain-client.js";
 import { CycleRunner } from "./cycle/cycle-runner.js";
 import { getGitSnapshot } from "./git/git.js";
+import { freshPending, loadChatContext, saveChatContext } from "./state/chat-state.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
 import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
 import { loadState, readKeeperFile, saveState } from "./state/keeper-files.js";
 
-type PendingClarification = {
-  action: "status";
-  createdAt: number;
-};
-
 export class CodexKeeperApp {
   private readonly brain: BrainClient;
   private readonly telegram: TelegramClient;
   private readonly runner: CycleRunner;
-  private readonly pendingByChatId = new Map<number, PendingClarification>();
 
   constructor(private readonly config: KeeperConfig) {
     this.brain = new BrainClient(config.brain);
@@ -44,21 +39,39 @@ export class CodexKeeperApp {
       return;
     }
     const repos = await discoverRepos(this.config.workspaceRoots);
-    const activeProject = await this.findActiveProject(message.chatId, repos);
+    const chatContext = await loadChatContext(message.chatId);
+    const rememberedProject = chatContext.activeProjectId
+      ? repos.find((repo) => repo.id === chatContext.activeProjectId || repo.name === chatContext.activeProjectId)
+      : null;
+    const activeProject = rememberedProject ?? (await this.findActiveProject(message.chatId, repos));
     const mentionedProject = this.findMentionedProject(message.text, repos);
-    const pending = this.getPending(message.chatId);
+    const pending = freshPending(chatContext.pending);
     if (pending?.action === "status" && mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
-      this.pendingByChatId.delete(message.chatId);
+      await this.rememberProject(message.chatId, mentionedProject);
       await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
+      return;
+    }
+    if (mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
+      await this.rememberProject(message.chatId, mentionedProject);
+      await this.reply(message.chatId, `Selected ${mentionedProject.name}. Ask for status, or tell me the task for this project.`);
       return;
     }
     if (this.isStatusRequest(message.text)) {
       if (mentionedProject) {
+        await this.rememberProject(message.chatId, mentionedProject);
         await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
         return;
       }
+      if (activeProject) {
+        await this.rememberProject(message.chatId, activeProject);
+        await this.reply(message.chatId, await this.buildProjectStatus(activeProject));
+        return;
+      }
       if (repos.length > 1) {
-        this.pendingByChatId.set(message.chatId, { action: "status", createdAt: Date.now() });
+        await saveChatContext({
+          ...chatContext,
+          pending: { action: "status", createdAt: Date.now() },
+        });
         await this.reply(
           message.chatId,
           `Which project would you like the status for? Available projects: ${repos.map((repo) => repo.name).join(", ")}.`,
@@ -105,6 +118,7 @@ export class CodexKeeperApp {
           updatedAt: new Date().toISOString(),
         });
       }
+      await this.rememberProject(message.chatId, repo);
       await this.reply(message.chatId, "Paused. I will wait until you ask me to continue.");
       return;
     }
@@ -131,6 +145,7 @@ export class CodexKeeperApp {
       return;
     }
     if (intent.action === "resume" && !intent.taskText && !message.fileText) {
+      await this.rememberProject(message.chatId, resolved.repo);
       const state = await loadState(resolved.repo.path);
       if (state?.status === "paused" && !state.currentTask) {
         await saveState(resolved.repo.path, {
@@ -151,6 +166,7 @@ export class CodexKeeperApp {
       await this.reply(message.chatId, "I found the project, but I need the task before I start development.");
       return;
     }
+    await this.rememberProject(message.chatId, resolved.repo);
     await this.runner.startTask({
       chatId: message.chatId,
       repoPath: resolved.repo.path,
@@ -199,6 +215,15 @@ export class CodexKeeperApp {
     return !allowed?.length || allowed.includes(chatId);
   }
 
+  private async rememberProject(chatId: number, repo: { id?: string; name: string }): Promise<void> {
+    const context = await loadChatContext(chatId);
+    await saveChatContext({
+      ...context,
+      activeProjectId: repo.id ?? repo.name,
+      pending: undefined,
+    });
+  }
+
   private async buildStatus(repos: Array<{ name: string; path: string }>, chatId: number): Promise<string> {
     const lines = ["CodexWatcher status:", ""];
     for (const repo of repos) {
@@ -241,16 +266,6 @@ export class CodexKeeperApp {
       if (state?.status !== "sleeping" || !state.nextWakeAt || !state.activeChatId) continue;
       this.runner.scheduleWake(state.activeChatId, repo.path, repo.name, state.nextWakeAt);
     }
-  }
-
-  private getPending(chatId: number): PendingClarification | null {
-    const pending = this.pendingByChatId.get(chatId);
-    if (!pending) return null;
-    if (Date.now() - pending.createdAt > 10 * 60_000) {
-      this.pendingByChatId.delete(chatId);
-      return null;
-    }
-    return pending;
   }
 
   private isStatusRequest(text: string): boolean {
