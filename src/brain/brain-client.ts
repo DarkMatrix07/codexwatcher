@@ -102,6 +102,7 @@ export class BrainClient {
   }
 
   async narrateStatus(input: {
+    userMessage: string;
     projectName: string;
     state: string;
     lastCycleId?: string;
@@ -109,6 +110,7 @@ export class BrainClient {
     nextWakeAt?: string;
     gitSummary?: string;
     progress: string[];
+    recentHistory: Array<{ role: "user" | "assistant"; text: string }>;
   }): Promise<{ reply: string }> {
     return await this.completeJson<{ reply: string }>([
       {
@@ -120,7 +122,7 @@ export class BrainClient {
         role: "user",
         content: JSON.stringify({
           instructions:
-            "Write a friendly but compact Telegram message. Do not use emojis. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the facts. Include the project name, current state, git summary, and the most useful progress notes.",
+            "Write a friendly but compact Telegram message answering the current user message. Use recentHistory to avoid repeating the previous wording. Do not use emojis. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the user's wording: if they ask what is implemented, lead with implemented work; if they ask status, lead with current state. Include the project name and only the most useful facts.",
           input,
           schema: {
             reply: "string",

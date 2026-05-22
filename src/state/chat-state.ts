@@ -4,12 +4,20 @@ import path from "node:path";
 export type ChatPendingClarification = {
   action: "status";
   createdAt: number;
+  originalText?: string;
+};
+
+export type ChatHistoryEntry = {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: string;
 };
 
 export type ChatContext = {
   chatId: number;
   activeProjectId?: string;
   pending?: ChatPendingClarification;
+  history?: ChatHistoryEntry[];
   updatedAt: string;
 };
 
@@ -30,6 +38,7 @@ export async function saveChatContext(context: ChatContext): Promise<void> {
   const all = await loadAllChatContexts();
   all[String(context.chatId)] = {
     ...context,
+    history: context.history?.slice(-20),
     updatedAt: new Date().toISOString(),
   };
   await mkdir(stateDir(), { recursive: true });
@@ -39,6 +48,26 @@ export async function saveChatContext(context: ChatContext): Promise<void> {
 export function freshPending(pending: ChatPendingClarification | undefined): ChatPendingClarification | undefined {
   if (!pending) return undefined;
   return Date.now() - pending.createdAt <= 10 * 60_000 ? pending : undefined;
+}
+
+export async function appendChatHistory(
+  chatId: number,
+  entry: Omit<ChatHistoryEntry, "timestamp">,
+): Promise<ChatContext> {
+  const context = await loadChatContext(chatId);
+  const next: ChatContext = {
+    ...context,
+    history: [
+      ...(context.history ?? []),
+      {
+        ...entry,
+        text: entry.text.slice(0, 2000),
+        timestamp: new Date().toISOString(),
+      },
+    ].slice(-20),
+  };
+  await saveChatContext(next);
+  return next;
 }
 
 async function loadAllChatContexts(): Promise<Record<string, ChatContext>> {

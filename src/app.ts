@@ -1,7 +1,7 @@
 import { BrainClient } from "./brain/brain-client.js";
 import { CycleRunner } from "./cycle/cycle-runner.js";
 import { getGitSnapshot } from "./git/git.js";
-import { freshPending, loadChatContext, saveChatContext } from "./state/chat-state.js";
+import { appendChatHistory, freshPending, loadChatContext, saveChatContext } from "./state/chat-state.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
 import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
@@ -46,9 +46,13 @@ export class CodexKeeperApp {
     const activeProject = rememberedProject ?? null;
     const mentionedProject = this.findMentionedProject(message.text, repos);
     const pending = freshPending(chatContext.pending);
+    const contextAfterUser = await appendChatHistory(message.chatId, { role: "user", text: message.text });
     if (pending?.action === "status" && mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
       await this.rememberProject(message.chatId, mentionedProject);
-      await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
+      await this.reply(
+        message.chatId,
+        await this.buildProjectStatus(message.chatId, mentionedProject, pending.originalText ?? message.text),
+      );
       return;
     }
     if (mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
@@ -59,18 +63,18 @@ export class CodexKeeperApp {
     if (this.isStatusRequest(message.text)) {
       if (mentionedProject) {
         await this.rememberProject(message.chatId, mentionedProject);
-        await this.reply(message.chatId, await this.buildProjectStatus(mentionedProject));
+        await this.reply(message.chatId, await this.buildProjectStatus(message.chatId, mentionedProject, message.text));
         return;
       }
       if (activeProject) {
         await this.rememberProject(message.chatId, activeProject);
-        await this.reply(message.chatId, await this.buildProjectStatus(activeProject));
+        await this.reply(message.chatId, await this.buildProjectStatus(message.chatId, activeProject, message.text));
         return;
       }
       if (repos.length > 1) {
         await saveChatContext({
-          ...chatContext,
-          pending: { action: "status", createdAt: Date.now() },
+          ...contextAfterUser,
+          pending: { action: "status", createdAt: Date.now(), originalText: message.text },
         });
         await this.reply(
           message.chatId,
@@ -79,7 +83,7 @@ export class CodexKeeperApp {
         return;
       }
       if (repos.length === 1) {
-        await this.reply(message.chatId, await this.buildProjectStatus(repos[0]));
+        await this.reply(message.chatId, await this.buildProjectStatus(message.chatId, repos[0], message.text));
         return;
       }
     }
@@ -179,9 +183,11 @@ export class CodexKeeperApp {
   private async reply(chatId: number, text: string): Promise<void> {
     if (chatId === 0) {
       console.log(text);
+      await appendChatHistory(chatId, { role: "assistant", text });
       return;
     }
     await this.telegram.sendMessage(chatId, text);
+    await appendChatHistory(chatId, { role: "assistant", text });
   }
 
   private findMentionedProject(text: string, repos: RepoCandidate[]): RepoCandidate | null {
@@ -220,7 +226,8 @@ export class CodexKeeperApp {
     return lines.join("\n").trim() || "CodexWatcher is running. No project state yet.";
   }
 
-  private async buildProjectStatus(repo: { name: string; path: string }): Promise<string> {
+  private async buildProjectStatus(chatId: number, repo: { name: string; path: string }, userMessage: string): Promise<string> {
+    const chatContext = await loadChatContext(chatId);
     const [state, git, progress] = await Promise.all([
       loadState(repo.path),
       getGitSnapshot(repo.path).catch(() => null),
@@ -228,6 +235,7 @@ export class CodexKeeperApp {
     ]);
     const progressLines = summarizeMarkdown(progress);
     const facts = {
+      userMessage,
       projectName: repo.name,
       state: state?.status ?? "no watcher state yet",
       lastCycleId: state?.lastCycleId,
@@ -235,6 +243,10 @@ export class CodexKeeperApp {
       nextWakeAt: state?.nextWakeAt,
       gitSummary: git ? `${git.status ? "changes pending" : "clean"}${git.lastCommit ? `, last commit ${git.lastCommit}` : ""}` : undefined,
       progress: progressLines,
+      recentHistory: (chatContext.history ?? []).slice(-8).map((entry) => ({
+        role: entry.role,
+        text: entry.text,
+      })),
     };
     try {
       const narrated = await this.brain.narrateStatus(facts);
