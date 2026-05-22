@@ -7,14 +7,29 @@ export type CodexRunResult = CommandResult & {
   resumeFallbackUsed?: boolean;
 };
 
-export function buildCodexArgs(params: { sessionId?: string; useLastResume?: boolean }): string[] {
-  if (params.sessionId) return ["exec", "--json", "resume", params.sessionId, "-"];
-  if (params.useLastResume) return ["exec", "--json", "resume", "--last", "-"];
-  return ["exec", "--json", "-"];
+export type CodexRunnerOptions = {
+  sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
+};
+
+export function buildCodexArgs(params: {
+  sessionId?: string;
+  useLastResume?: boolean;
+  sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
+}): string[] {
+  const args = ["exec", "--json"];
+  if (params.sandboxMode) args.push("--sandbox", params.sandboxMode);
+  if (params.sessionId) return [...args, "resume", params.sessionId, "-"];
+  if (params.useLastResume) return [...args, "resume", "--last", "-"];
+  return [...args, "-"];
 }
 
-export async function runCodex(repoPath: string, prompt: string, sessionId?: string): Promise<CodexRunResult> {
-  let result = await runCommand("codex", buildCodexArgs({ sessionId }), {
+export async function runCodex(
+  repoPath: string,
+  prompt: string,
+  sessionId?: string,
+  options: CodexRunnerOptions = {},
+): Promise<CodexRunResult> {
+  let result = await runCommand("codex", buildCodexArgs({ sessionId, sandboxMode: options.sandboxMode }), {
     cwd: repoPath,
     input: prompt,
     timeoutMs: 45 * 60_000,
@@ -22,7 +37,7 @@ export async function runCodex(repoPath: string, prompt: string, sessionId?: str
   let resumeFallbackUsed = false;
   if (sessionId && result.exitCode !== 0) {
     resumeFallbackUsed = true;
-    result = await runCommand("codex", buildCodexArgs({ useLastResume: true }), {
+    result = await runCommand("codex", buildCodexArgs({ useLastResume: true, sandboxMode: options.sandboxMode }), {
       cwd: repoPath,
       input: prompt,
       timeoutMs: 45 * 60_000,

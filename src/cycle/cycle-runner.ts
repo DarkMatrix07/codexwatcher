@@ -196,7 +196,9 @@ export class CycleRunner {
       resumeNote: `Working on ${params.taskTitle} in cycle ${params.cycleId}.`,
       updatedAt: new Date().toISOString(),
     });
-    const run = await runCodex(params.repoPath, prompt, params.sessionId);
+    const run = await runCodex(params.repoPath, prompt, params.sessionId, {
+      sandboxMode: this.config.codex.sandboxMode,
+    });
     await saveCycleOutput(params.repoPath, params.cycleId, `${run.stdout}\n${run.stderr}`);
     if (run.exitCode !== 0) {
       await appendKeeperFile(

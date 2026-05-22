@@ -10,6 +10,16 @@ test("builds session resume args", () => {
   assert.deepEqual(buildCodexArgs({ sessionId: "abc" }), ["exec", "--json", "resume", "abc", "-"]);
 });
 
+test("builds sandboxed codex exec args", () => {
+  assert.deepEqual(buildCodexArgs({ sandboxMode: "workspace-write" }), [
+    "exec",
+    "--json",
+    "--sandbox",
+    "workspace-write",
+    "-",
+  ]);
+});
+
 test("prompt requires report path", () => {
   const prompt = buildCodexPrompt({
     cycleId: "001",

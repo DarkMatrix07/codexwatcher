@@ -28,6 +28,7 @@ export type KeeperConfig = {
     pauseThresholdPercent: number;
     maxAutoCycles: number;
     maxRepairCycles: number;
+    sandboxMode: "read-only" | "workspace-write" | "danger-full-access";
   };
 };
 

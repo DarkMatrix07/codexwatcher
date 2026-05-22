@@ -13,6 +13,7 @@
     "cautionThresholdPercent": 70,
     "pauseThresholdPercent": 90,
     "maxAutoCycles": 10,
-    "maxRepairCycles": 1
+    "maxRepairCycles": 1,
+    "sandboxMode": "workspace-write"
   }
 }

@@ -9,6 +9,7 @@ const DEFAULT_CONFIG: Omit<KeeperConfig, "workspaceRoots" | "telegram" | "brain"
     pauseThresholdPercent: 90,
     maxAutoCycles: 10,
     maxRepairCycles: 1,
+    sandboxMode: "workspace-write",
   },
 };
 
@@ -49,6 +50,7 @@ export async function loadConfig(configPath = "codexwatcher.config.json"): Promi
       pauseThresholdPercent: raw.codex?.pauseThresholdPercent ?? DEFAULT_CONFIG.codex.pauseThresholdPercent,
       maxAutoCycles: raw.codex?.maxAutoCycles ?? 10,
       maxRepairCycles: raw.codex?.maxRepairCycles ?? 1,
+      sandboxMode: raw.codex?.sandboxMode ?? DEFAULT_CONFIG.codex.sandboxMode,
     },
   };
   validateConfig(config);
@@ -89,5 +91,8 @@ function validateConfig(config: KeeperConfig): void {
   }
   if (!config.brain.apiKey && config.brain.authHeader !== false) {
     throw new Error("brain.apiKey is required, or set an env var named by brain.apiKey.");
+  }
+  if (!["read-only", "workspace-write", "danger-full-access"].includes(config.codex.sandboxMode)) {
+    throw new Error("codex.sandboxMode must be read-only, workspace-write, or danger-full-access.");
   }
 }
