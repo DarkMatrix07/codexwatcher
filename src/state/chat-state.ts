@@ -11,6 +11,14 @@ export type ChatHistoryEntry = {
   role: "user" | "assistant";
   text: string;
   timestamp: string;
+  projectId?: string;
+};
+
+export type ChatProjectMemory = {
+  projectId: string;
+  projectName: string;
+  lastSelectedAt: string;
+  history: ChatHistoryEntry[];
 };
 
 export type ChatContext = {
@@ -18,6 +26,7 @@ export type ChatContext = {
   activeProjectId?: string;
   pending?: ChatPendingClarification;
   history?: ChatHistoryEntry[];
+  projects?: Record<string, ChatProjectMemory>;
   updatedAt: string;
 };
 
@@ -39,6 +48,7 @@ export async function saveChatContext(context: ChatContext): Promise<void> {
   all[String(context.chatId)] = {
     ...context,
     history: context.history?.slice(-20),
+    projects: trimProjectMemories(context.projects),
     updatedAt: new Date().toISOString(),
   };
   await mkdir(stateDir(), { recursive: true });
@@ -70,6 +80,71 @@ export async function appendChatHistory(
   return next;
 }
 
+export async function rememberActiveProject(
+  chatId: number,
+  project: { id?: string; name: string },
+): Promise<ChatContext> {
+  const projectId = project.id ?? project.name;
+  const context = await loadChatContext(chatId);
+  const existing = context.projects?.[projectId];
+  const next: ChatContext = {
+    ...context,
+    activeProjectId: projectId,
+    pending: undefined,
+    projects: {
+      ...(context.projects ?? {}),
+      [projectId]: {
+        projectId,
+        projectName: project.name,
+        lastSelectedAt: new Date().toISOString(),
+        history: existing?.history ?? [],
+      },
+    },
+  };
+  await saveChatContext(next);
+  return next;
+}
+
+export async function appendProjectChatHistory(
+  chatId: number,
+  project: { id?: string; name: string },
+  entry: Omit<ChatHistoryEntry, "timestamp" | "projectId">,
+): Promise<ChatContext> {
+  const projectId = project.id ?? project.name;
+  const context = await loadChatContext(chatId);
+  const existing = context.projects?.[projectId];
+  const stamped: ChatHistoryEntry = {
+    ...entry,
+    projectId,
+    text: entry.text.slice(0, 2000),
+    timestamp: new Date().toISOString(),
+  };
+  const next: ChatContext = {
+    ...context,
+    activeProjectId: projectId,
+    projects: {
+      ...(context.projects ?? {}),
+      [projectId]: {
+        projectId,
+        projectName: project.name,
+        lastSelectedAt: existing?.lastSelectedAt ?? new Date().toISOString(),
+        history: [...(existing?.history ?? []), stamped].slice(-20),
+      },
+    },
+  };
+  await saveChatContext(next);
+  return next;
+}
+
+export function getProjectHistory(
+  context: ChatContext,
+  project: { id?: string; name: string },
+  limit = 8,
+): ChatHistoryEntry[] {
+  const projectId = project.id ?? project.name;
+  return context.projects?.[projectId]?.history.slice(-limit) ?? [];
+}
+
 async function loadAllChatContexts(): Promise<Record<string, ChatContext>> {
   try {
     return JSON.parse(await readFile(statePath(), "utf8")) as Record<string, ChatContext>;
@@ -84,4 +159,21 @@ function stateDir(): string {
 
 function statePath(): string {
   return path.join(stateDir(), STATE_FILE);
+}
+
+function trimProjectMemories(
+  projects: Record<string, ChatProjectMemory> | undefined,
+): Record<string, ChatProjectMemory> | undefined {
+  if (!projects) return undefined;
+  const entries = Object.entries(projects)
+    .sort((a, b) => Date.parse(b[1].lastSelectedAt) - Date.parse(a[1].lastSelectedAt))
+    .slice(0, 50)
+    .map(([key, value]) => [
+      key,
+      {
+        ...value,
+        history: value.history.slice(-20),
+      },
+    ]);
+  return Object.fromEntries(entries) as Record<string, ChatProjectMemory>;
 }

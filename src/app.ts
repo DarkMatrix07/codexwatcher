@@ -1,7 +1,15 @@
 import { BrainClient } from "./brain/brain-client.js";
 import { CycleRunner } from "./cycle/cycle-runner.js";
 import { getGitSnapshot } from "./git/git.js";
-import { appendChatHistory, freshPending, loadChatContext, saveChatContext } from "./state/chat-state.js";
+import {
+  appendChatHistory,
+  appendProjectChatHistory,
+  freshPending,
+  getProjectHistory,
+  loadChatContext,
+  rememberActiveProject,
+  saveChatContext,
+} from "./state/chat-state.js";
 import { TelegramClient } from "./telegram/telegram.js";
 import type { KeeperConfig, NormalizedMessage } from "./types.js";
 import { discoverRepos, resolveRepoFromHint, type RepoCandidate } from "./workspace/workspace.js";
@@ -67,26 +75,42 @@ export class CodexKeeperApp {
     }
     if (pending?.action === "status" && mentionedProject && this.isProjectSelection(message.text, mentionedProject)) {
       await this.rememberProject(message.chatId, mentionedProject);
-      await this.reply(
+      await appendProjectChatHistory(message.chatId, mentionedProject, { role: "user", text: message.text });
+      await this.replyForProject(
         message.chatId,
+        mentionedProject,
         await this.buildProjectStatus(message.chatId, mentionedProject, pending.originalText ?? message.text),
       );
       return;
     }
     if (mentionedProject && this.isProjectSelection(message.text, mentionedProject)) {
       await this.rememberProject(message.chatId, mentionedProject);
-      await this.reply(message.chatId, `Selected ${mentionedProject.name}. Ask for status, or tell me the task for this project.`);
+      await this.replyForProject(
+        message.chatId,
+        mentionedProject,
+        `Selected ${mentionedProject.name}. Ask for status, or tell me the task for this project.`,
+      );
       return;
     }
     if (this.isStatusRequest(message.text)) {
       if (mentionedProject) {
         await this.rememberProject(message.chatId, mentionedProject);
-        await this.reply(message.chatId, await this.buildProjectStatus(message.chatId, mentionedProject, message.text));
+        await appendProjectChatHistory(message.chatId, mentionedProject, { role: "user", text: message.text });
+        await this.replyForProject(
+          message.chatId,
+          mentionedProject,
+          await this.buildProjectStatus(message.chatId, mentionedProject, message.text),
+        );
         return;
       }
       if (activeProject) {
         await this.rememberProject(message.chatId, activeProject);
-        await this.reply(message.chatId, await this.buildProjectStatus(message.chatId, activeProject, message.text));
+        await appendProjectChatHistory(message.chatId, activeProject, { role: "user", text: message.text });
+        await this.replyForProject(
+          message.chatId,
+          activeProject,
+          await this.buildProjectStatus(message.chatId, activeProject, message.text),
+        );
         return;
       }
       if (repos.length > 1) {
@@ -110,6 +134,10 @@ export class CodexKeeperApp {
       fileText: message.fileText,
       repos: repos.map((repo) => ({ name: repo.name, path: repo.path })),
       activeProject: activeProject?.name,
+      recentHistory: (contextAfterUser.history ?? []).slice(-8).map((entry) => ({
+        role: entry.role,
+        text: entry.text,
+      })),
     });
     if (intent.action === "status") {
       await this.reply(message.chatId, await this.buildStatus(repos, message.chatId));
@@ -189,6 +217,7 @@ export class CodexKeeperApp {
       return;
     }
     await this.rememberProject(message.chatId, resolved.repo);
+    await appendProjectChatHistory(message.chatId, resolved.repo, { role: "user", text: message.text });
     await this.runner.startTask({
       chatId: message.chatId,
       repoPath: resolved.repo.path,
@@ -208,6 +237,11 @@ export class CodexKeeperApp {
     await appendChatHistory(chatId, { role: "assistant", text });
   }
 
+  private async replyForProject(chatId: number, repo: { id?: string; name: string }, text: string): Promise<void> {
+    await this.reply(chatId, text);
+    await appendProjectChatHistory(chatId, repo, { role: "assistant", text });
+  }
+
   private findMentionedProject(text: string, repos: RepoCandidate[]): RepoCandidate | null {
     const normalizedText = normalizeProjectText(text);
     const matches = repos.filter((repo) => {
@@ -225,12 +259,7 @@ export class CodexKeeperApp {
   }
 
   private async rememberProject(chatId: number, repo: { id?: string; name: string }): Promise<void> {
-    const context = await loadChatContext(chatId);
-    await saveChatContext({
-      ...context,
-      activeProjectId: repo.id ?? repo.name,
-      pending: undefined,
-    });
+    await rememberActiveProject(chatId, repo);
   }
 
   private async buildStatus(repos: Array<{ name: string; path: string }>, chatId: number): Promise<string> {
@@ -246,12 +275,15 @@ export class CodexKeeperApp {
 
   private async buildProjectStatus(chatId: number, repo: { name: string; path: string }, userMessage: string): Promise<string> {
     const chatContext = await loadChatContext(chatId);
-    const [state, git, progress] = await Promise.all([
+    const [state, git, progress, memory] = await Promise.all([
       loadState(repo.path),
       getGitSnapshot(repo.path).catch(() => null),
       readKeeperFile(repo.path, "progress.md").catch(() => ""),
+      readKeeperFile(repo.path, "memory.md").catch(() => ""),
     ]);
     const progressLines = summarizeMarkdown(progress);
+    const memoryLines = summarizeMarkdown(memory);
+    const refreshedContext = await loadChatContext(chatId);
     const facts = {
       userMessage,
       projectName: repo.name,
@@ -261,7 +293,12 @@ export class CodexKeeperApp {
       nextWakeAt: state?.nextWakeAt,
       gitSummary: git ? `${git.status ? "changes pending" : "clean"}${git.lastCommit ? `, last commit ${git.lastCommit}` : ""}` : undefined,
       progress: progressLines,
-      recentHistory: (chatContext.history ?? []).slice(-8).map((entry) => ({
+      memory: memoryLines,
+      recentHistory: (refreshedContext.history ?? chatContext.history ?? []).slice(-8).map((entry) => ({
+        role: entry.role,
+        text: entry.text,
+      })),
+      projectHistory: getProjectHistory(refreshedContext, repo, 8).map((entry) => ({
         role: entry.role,
         text: entry.text,
       })),
@@ -285,6 +322,10 @@ export class CodexKeeperApp {
       lines.push(...progressLines.map((line) => `- ${line}`));
     } else {
       lines.push("", "Progress: no progress notes yet.");
+    }
+    if (memoryLines.length) {
+      lines.push("", "Memory:");
+      lines.push(...memoryLines.map((line) => `- ${line}`));
     }
     return lines.join("\n");
   }

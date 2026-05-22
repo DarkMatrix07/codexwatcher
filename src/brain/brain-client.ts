@@ -13,6 +13,7 @@ export class BrainClient {
     fileText?: string;
     repos: Array<{ name: string; path: string }>;
     activeProject?: string;
+    recentHistory?: Array<{ role: "user" | "assistant"; text: string }>;
   }): Promise<BrainIntent> {
     return await this.completeJson<BrainIntent>([
       {
@@ -23,7 +24,7 @@ export class BrainClient {
       {
         role: "user",
         content: JSON.stringify({
-          task: "Classify intent and extract projectHint/taskText. Ask clarification when project or task is unclear.",
+          task: "Classify intent and extract projectHint/taskText. Use activeProject and recentHistory to resolve references like 'that', 'there', or 'continue it'. Ask clarification when project or task is unclear.",
           allowedActions: ["clarify", "start_development", "status", "pause", "resume", "chat"],
           input,
           schema: {
@@ -110,7 +111,9 @@ export class BrainClient {
     nextWakeAt?: string;
     gitSummary?: string;
     progress: string[];
+    memory: string[];
     recentHistory: Array<{ role: "user" | "assistant"; text: string }>;
+    projectHistory: Array<{ role: "user" | "assistant"; text: string }>;
   }): Promise<{ reply: string }> {
     return await this.completeJson<{ reply: string }>([
       {
@@ -122,7 +125,7 @@ export class BrainClient {
         role: "user",
         content: JSON.stringify({
           instructions:
-            "Write a friendly but compact Telegram message answering the current user message. Use recentHistory to avoid repeating the previous wording. Do not use emojis. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the user's wording: if they ask what is implemented, lead with implemented work; if they ask status, lead with current state. Include the project name and only the most useful facts.",
+            "Write a friendly but compact Telegram message answering the current user message. Use projectHistory and recentHistory to resolve references and avoid repeating the previous wording. Use memory for resume/blocked/stopped context and progress for completed work. Do not use emojis. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the user's wording: if they ask what is implemented, lead with implemented work; if they ask status, lead with current state. Include the project name and only the most useful facts.",
           input,
           schema: {
             reply: "string",
