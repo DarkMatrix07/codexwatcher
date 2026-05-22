@@ -120,7 +120,7 @@ export class BrainClient {
         role: "user",
         content: JSON.stringify({
           instructions:
-            "Write a friendly but compact Telegram message. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the facts. Include the project name, current state, git summary, and the most useful progress notes.",
+            "Write a friendly but compact Telegram message. Do not use emojis. Do not invent facts, do not mention internal schemas, and keep it under 900 characters. Vary the wording naturally based on the facts. Include the project name, current state, git summary, and the most useful progress notes.",
           input,
           schema: {
             reply: "string",
