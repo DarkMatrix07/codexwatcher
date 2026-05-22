@@ -77,6 +77,11 @@ ${input.taskPrompt}
 Quota mode: ${input.quotaMode}
 ${input.quotaMode === "caution" ? "Keep this change especially small. Preserve a clear resume note before risky work." : ""}
 
+Metadata rule:
+- User file restrictions apply to project/source files outside .keeper.
+- You must still read/write the required .keeper files listed here, even if task wording says to edit only a specific project file.
+- If task wording conflicts with required .keeper reporting, keep the project/source change narrow and complete the .keeper reporting.
+
 Rules:
 - Work only on the current task.
 - Do not repeat completed work from .keeper/progress.md.

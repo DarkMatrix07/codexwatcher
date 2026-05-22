@@ -57,7 +57,7 @@ export class BrainClient {
         role: "user",
         content: JSON.stringify({
           instructions:
-            "Break work into small tasks. If quotaMode is caution, choose a very small task and include resume-safety language.",
+            "Break work into small tasks. If quotaMode is caution, choose a very small task and include resume-safety language. Do not tell Codex to avoid .keeper files; CodexWatcher requires .keeper progress, memory, and report files. When a user says to edit only a file like README.md, treat that as applying to project source files outside .keeper.",
           input,
           schema: {
             reply: "string",

@@ -29,4 +29,5 @@ test("prompt requires report path", () => {
   });
   assert.match(prompt, /\.keeper\/cycles\/001\/codex-report\.json/);
   assert.match(prompt, /Do not create git commits/);
+  assert.match(prompt, /User file restrictions apply to project\/source files outside \.keeper/);
 });
