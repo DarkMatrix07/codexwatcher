@@ -11,6 +11,11 @@ type CodexAuth = {
   refresh_token?: string;
   account_id?: string;
   accountId?: string;
+  tokens?: {
+    access_token?: string;
+    refresh_token?: string;
+    account_id?: string;
+  };
 };
 
 export async function checkCodexUsage(): Promise<CodexUsage> {
@@ -34,14 +39,15 @@ async function usageViaOAuth(): Promise<CodexUsage> {
   try {
     const authPath = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "auth.json");
     const auth = JSON.parse(await readFile(authPath, "utf8")) as CodexAuth;
-    const token = auth.access_token ?? auth.accessToken;
+    const token = auth.access_token ?? auth.accessToken ?? auth.tokens?.access_token;
     if (!token) throw new Error("No access token in auth.json.");
+    const accountId = auth.account_id ?? auth.accountId ?? auth.tokens?.account_id;
     const response = await fetch("https://chatgpt.com/backend-api/wham/usage", {
       headers: {
         authorization: `Bearer ${token}`,
         accept: "application/json",
-        ...(auth.account_id || auth.accountId
-          ? { "ChatGPT-Account-Id": String(auth.account_id ?? auth.accountId) }
+        ...(accountId
+          ? { "ChatGPT-Account-Id": String(accountId) }
           : {}),
       },
     });
