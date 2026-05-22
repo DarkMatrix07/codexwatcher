@@ -47,7 +47,25 @@ export class CodexKeeperApp {
     const mentionedProject = this.findMentionedProject(message.text, repos);
     const pending = freshPending(chatContext.pending);
     const contextAfterUser = await appendChatHistory(message.chatId, { role: "user", text: message.text });
-    if (pending?.action === "status" && mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
+    if (this.isGreeting(message.text)) {
+      await this.reply(
+        message.chatId,
+        activeProject
+          ? `Hey. I have ${activeProject.name} selected right now. Ask for status, switch project, or tell me the next task.`
+          : `Hey. Tell me which project to use, or ask for status and I will show the available projects.`,
+      );
+      return;
+    }
+    if (this.isCurrentProjectQuestion(message.text)) {
+      await this.reply(
+        message.chatId,
+        activeProject
+          ? `The current project is ${activeProject.name}.`
+          : `No project is selected yet. Available projects: ${repos.map((repo) => repo.name).join(", ")}.`,
+      );
+      return;
+    }
+    if (pending?.action === "status" && mentionedProject && this.isProjectSelection(message.text, mentionedProject)) {
       await this.rememberProject(message.chatId, mentionedProject);
       await this.reply(
         message.chatId,
@@ -55,7 +73,7 @@ export class CodexKeeperApp {
       );
       return;
     }
-    if (mentionedProject && this.isProjectOnlyReply(message.text, mentionedProject)) {
+    if (mentionedProject && this.isProjectSelection(message.text, mentionedProject)) {
       await this.rememberProject(message.chatId, mentionedProject);
       await this.reply(message.chatId, `Selected ${mentionedProject.name}. Ask for status, or tell me the task for this project.`);
       return;
@@ -283,6 +301,31 @@ export class CodexKeeperApp {
   private isStatusRequest(text: string): boolean {
     const normalized = text.toLowerCase();
     return /\b(status|progress|implemented|completed|done|checkpoint|checkpoints)\b/.test(normalized);
+  }
+
+  private isGreeting(text: string): boolean {
+    return /^(hi|hello|hey|yo|hola|namaste|sup)[!.\s]*$/i.test(text.trim());
+  }
+
+  private isCurrentProjectQuestion(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return (
+      /\b(last|current|selected|assigned)\b.*\b(project|repo|repository)\b/.test(normalized) ||
+      /\b(project|repo|repository)\b.*\b(last|current|selected|assigned)\b/.test(normalized)
+    );
+  }
+
+  private isProjectSelection(text: string, repo: RepoCandidate): boolean {
+    if (this.isProjectOnlyReply(text, repo)) return true;
+    if (!this.findMentionedProject(text, [repo])) return false;
+    const normalized = text.toLowerCase();
+    const hasSelectionCue = /\b(ok|okay|yes|yeah|yep|its|it's|it is|use|select|choose|that one|this one)\b/.test(
+      normalized,
+    );
+    const hasWorkCue = /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
+      normalized,
+    );
+    return hasSelectionCue && !hasWorkCue && !this.isStatusRequest(text);
   }
 
   private isProjectOnlyReply(text: string, repo: RepoCandidate): boolean {
