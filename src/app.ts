@@ -129,6 +129,30 @@ export class CodexKeeperApp {
         return;
       }
     }
+    if (this.isDevelopmentRequest(message.text)) {
+      if (repos.length > 1 && !mentionedProject && !activeProject) {
+        await this.reply(
+          message.chatId,
+          `Which project should I use? I found: ${repos.map((repo) => repo.name).join(", ")}.`,
+        );
+        return;
+      }
+      const repo = mentionedProject ?? activeProject ?? repos[0];
+      if (!repo) {
+        await this.reply(message.chatId, "I need the project before I start development.");
+        return;
+      }
+      await this.rememberProject(message.chatId, repo);
+      await appendProjectChatHistory(message.chatId, repo, { role: "user", text: message.text });
+      await this.runner.startTask({
+        chatId: message.chatId,
+        repoPath: repo.path,
+        projectId: repo.name,
+        taskText: message.text,
+        fileText: message.fileText,
+      });
+      return;
+    }
     const intent = await this.brain.interpret({
       messageText: message.text,
       fileText: message.fileText,
@@ -363,10 +387,15 @@ export class CodexKeeperApp {
     const hasSelectionCue = /\b(ok|okay|yes|yeah|yep|its|it's|it is|use|select|choose|switch|change|that one|this one)\b/.test(
       normalized,
     );
-    const hasWorkCue = /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
+    const hasWorkCue = this.isDevelopmentRequest(text);
+    return hasSelectionCue && !hasWorkCue && !this.isStatusRequest(text);
+  }
+
+  private isDevelopmentRequest(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return /\b(add|implement|fix|create|update|change|build|write|delete|remove|test|run|work|develop|make)\b/.test(
       normalized,
     );
-    return hasSelectionCue && !hasWorkCue && !this.isStatusRequest(text);
   }
 
   private isProjectOnlyReply(text: string, repo: RepoCandidate): boolean {
