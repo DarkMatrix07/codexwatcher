@@ -80,6 +80,19 @@ export function extractGitUrl(text: string): string | null {
   return match[0].replace(/[),.;]+$/g, "");
 }
 
+export function extractBranchHint(text: string): string | null {
+  const patterns = [
+    /\bbranch\s+([A-Za-z0-9._/-]{1,200})\b/i,
+    /\b(?:checkout|switch\s+to)\s+(?!https?:|git@|ssh:)([A-Za-z0-9._/-]{1,200})\b/i,
+    /\b(?:from|on)\s+branch\s+([A-Za-z0-9._/-]{1,200})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const candidate = pattern.exec(text)?.[1]?.replace(/[),.;]+$/g, "");
+    if (candidate && isSafeBranchName(candidate)) return candidate;
+  }
+  return null;
+}
+
 export function repoNameFromGitUrl(url: string): string {
   const withoutTrailing = url.replace(/[),.;]+$/g, "").replace(/\/+$/g, "");
   const last = withoutTrailing.split(/[/:\\]/).filter(Boolean).at(-1) ?? "repo";
@@ -88,10 +101,13 @@ export function repoNameFromGitUrl(url: string): string {
   return safe || "repo";
 }
 
-export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: string): Promise<{
+export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: string, branch?: string | null): Promise<{
   repo: RepoCandidate;
   cloned: boolean;
 }> {
+  if (branch && !isSafeBranchName(branch)) {
+    throw new Error("The requested branch name is not safe to check out.");
+  }
   const root = path.resolve(workspaceRoot);
   await mkdir(root, { recursive: true });
   const name = repoNameFromGitUrl(gitUrl);
@@ -103,6 +119,7 @@ export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: stri
       if (currentUrl && normalizeGitUrl(currentUrl) !== normalizeGitUrl(gitUrl)) {
         throw new Error(`A different git repo already exists at ${target}. Existing origin: ${redactGitUrl(currentUrl)}`);
       }
+      if (branch) await checkoutBranch(target, branch);
       return {
         cloned: false,
         repo: { id: name.toLowerCase(), name, path: target },
@@ -110,7 +127,10 @@ export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: stri
     }
     throw new Error(`Target path already exists and is not a git repo: ${target}`);
   }
-  const result = await runCommand("git", ["clone", gitUrl, target], { cwd: root, timeoutMs: 10 * 60_000 });
+  const result = await runCommand("git", ["clone", ...(branch ? ["--branch", branch] : []), gitUrl, target], {
+    cwd: root,
+    timeoutMs: 10 * 60_000,
+  });
   if (result.exitCode !== 0) {
     throw new Error(`git clone failed: ${redactGitUrl(result.stderr || result.stdout)}`);
   }
@@ -118,6 +138,30 @@ export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: stri
     cloned: true,
     repo: { id: name.toLowerCase(), name, path: target },
   };
+}
+
+async function checkoutBranch(repoPath: string, branch: string): Promise<void> {
+  const checkout = await runCommand("git", ["checkout", branch], { cwd: repoPath, timeoutMs: 60_000 });
+  if (checkout.exitCode === 0) return;
+  await runCommand("git", ["fetch", "origin", branch], { cwd: repoPath, timeoutMs: 120_000 });
+  const tracking = await runCommand("git", ["checkout", "-B", branch, `origin/${branch}`], {
+    cwd: repoPath,
+    timeoutMs: 60_000,
+  });
+  if (tracking.exitCode !== 0) {
+    throw new Error(`Could not check out branch ${branch}: ${redactGitUrl(tracking.stderr || tracking.stdout)}`);
+  }
+}
+
+function isSafeBranchName(branch: string): boolean {
+  return (
+    /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(branch) &&
+    !branch.includes("..") &&
+    !branch.includes("//") &&
+    !branch.endsWith("/") &&
+    !branch.endsWith(".") &&
+    !branch.endsWith(".lock")
+  );
 }
 
 function normalizeGitUrl(url: string): string {

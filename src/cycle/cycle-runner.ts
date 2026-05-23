@@ -274,11 +274,13 @@ export class CycleRunner {
     };
 
     if (complete) {
-      if (params.previousState?.baselineGitStatus?.trim()) {
+      const baselineGitStatus = params.previousState?.baselineGitStatus?.trim();
+      const currentUserGitStatus = filterKeeperStatus((await getGitSnapshot(params.repoPath)).status);
+      if (baselineGitStatus && baselineStillPresent(baselineGitStatus, currentUserGitStatus)) {
         await appendKeeperFile(
           params.repoPath,
           "memory.md",
-          `\n## Commit Blocked Cycle ${params.cycleId}\n\nTask: ${params.taskTitle}\nReason: repo had pre-existing changes before CodexWatcher started this task.\nBaseline git status:\n\`\`\`text\n${params.previousState.baselineGitStatus}\n\`\`\`\n`,
+          `\n## Commit Blocked Cycle ${params.cycleId}\n\nTask: ${params.taskTitle}\nReason: repo had pre-existing changes before CodexWatcher started this task.\nBaseline git status:\n\`\`\`text\n${baselineGitStatus}\n\`\`\`\n`,
         );
         await saveState(params.repoPath, {
           ...nextState,
@@ -293,6 +295,7 @@ export class CycleRunner {
         return "stop";
       }
       nextState.resumeNote = `Last completed task: ${params.taskTitle}.`;
+      nextState.baselineGitStatus = undefined;
       await saveState(params.repoPath, nextState);
       const commit = await commitAll(
         params.repoPath,
@@ -417,6 +420,21 @@ function filterKeeperStatus(status: string): string {
       return file && !file.startsWith(".keeper/");
     })
     .join("\n");
+}
+
+function baselineStillPresent(baselineStatus: string, currentStatus: string): boolean {
+  const baselineFiles = statusFiles(baselineStatus);
+  const currentFiles = statusFiles(currentStatus);
+  return [...baselineFiles].some((file) => currentFiles.has(file));
+}
+
+function statusFiles(status: string): Set<string> {
+  const files = new Set<string>();
+  for (const line of status.split(/\r?\n/)) {
+    const file = line.slice(3).trim().replace(/\\/g, "/");
+    if (file) files.add(file);
+  }
+  return files;
 }
 
 function commitPathsForCycle(cycleId: string, report: CodexReport): string[] {

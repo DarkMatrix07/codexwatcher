@@ -7,7 +7,7 @@ type TelegramUpdate = {
     chat: { id: number };
     text?: string;
     caption?: string;
-    document?: { file_id: string; file_name?: string };
+    document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
   };
 };
 
@@ -74,10 +74,10 @@ export class TelegramClient {
       let body = "";
       let tooLarge = false;
       request.on("data", (chunk) => {
+        if (tooLarge) return;
         body += String(chunk);
         if (body.length > 1024 * 1024) {
           tooLarge = true;
-          request.destroy();
         }
       });
       request.on("end", () => {
@@ -86,11 +86,19 @@ export class TelegramClient {
           response.end("Payload too large");
           return;
         }
+        let update: TelegramUpdate;
+        try {
+          update = JSON.parse(body) as TelegramUpdate;
+        } catch {
+          response.writeHead(400);
+          response.end("Invalid JSON");
+          return;
+        }
         response.writeHead(200, { "content-type": "application/json" });
         response.end('{"ok":true}');
         void (async () => {
           try {
-            const message = await this.normalize(JSON.parse(body) as TelegramUpdate);
+            const message = await this.normalize(update);
             if (message) await onMessage(message);
           } catch (error) {
             console.error("Telegram webhook handling failed:", error instanceof Error ? error.message : error);
@@ -116,6 +124,16 @@ export class TelegramClient {
     let fileText: string | undefined;
     let fileName = source.document?.file_name;
     if (source.document?.file_id) {
+      const validationError = validateTelegramDocument(source.document);
+      if (validationError) {
+        return {
+          chatId: source.chat.id,
+          text,
+          fileName,
+          fileError: validationError,
+          raw: update,
+        };
+      }
       fileText = await this.downloadTextFile(source.document.file_id);
     }
     return {
@@ -158,8 +176,32 @@ export class TelegramClient {
 
 function splitTelegramText(text: string): string[] {
   const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += 3900) {
-    chunks.push(text.slice(i, i + 3900));
+  const characters = Array.from(text);
+  for (let i = 0; i < characters.length; i += 3900) {
+    chunks.push(characters.slice(i, i + 3900).join(""));
   }
   return chunks.length ? chunks : [""];
+}
+
+function validateTelegramDocument(document: { file_name?: string; mime_type?: string; file_size?: number }): string | null {
+  if (document.file_size && document.file_size > 512_000) {
+    return "That file is too large for the MVP upload limit. Send a task or notes file under 512 KB.";
+  }
+  const name = document.file_name ?? "";
+  const extensionOk = /\.(txt|md|markdown|json|jsonl|yaml|yml|toml|log)$/i.test(name);
+  const mime = document.mime_type ?? "";
+  const mimeOk =
+    !mime ||
+    mime.startsWith("text/") ||
+    [
+      "application/json",
+      "application/x-yaml",
+      "application/yaml",
+      "application/toml",
+      "application/octet-stream",
+    ].includes(mime);
+  if (!extensionOk || !mimeOk) {
+    return "I can only read text task files right now, like .md, .txt, .json, .yaml, .toml, or .log.";
+  }
+  return null;
 }

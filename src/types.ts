@@ -53,6 +53,7 @@ export type NormalizedMessage = {
   text: string;
   fileName?: string;
   fileText?: string;
+  fileError?: string;
   raw: unknown;
 };
 

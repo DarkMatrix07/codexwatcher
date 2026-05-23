@@ -15,6 +15,7 @@ import type { KeeperConfig, NormalizedMessage } from "./types.js";
 import {
   cloneRepoIntoWorkspace,
   discoverRepos,
+  extractBranchHint,
   extractGitUrl,
   resolveRepoFromHint,
   type RepoCandidate,
@@ -25,6 +26,7 @@ export class CodexKeeperApp {
   private readonly brain: BrainClient;
   private readonly telegram: TelegramClient;
   private readonly runner: CycleRunner;
+  private readonly messageQueues = new Map<number, Promise<unknown>>();
 
   constructor(private readonly config: KeeperConfig) {
     this.brain = new BrainClient(config.brain);
@@ -48,8 +50,18 @@ export class CodexKeeperApp {
   }
 
   async handleMessage(message: NormalizedMessage): Promise<void> {
+    await this.withMessageLock(message.chatId, async () => {
+      await this.handleMessageLocked(message);
+    });
+  }
+
+  private async handleMessageLocked(message: NormalizedMessage): Promise<void> {
     if (!this.isAllowedChat(message.chatId)) {
       await this.reply(message.chatId, "Unauthorized.");
+      return;
+    }
+    if (message.fileError) {
+      await this.reply(message.chatId, message.fileError);
       return;
     }
     const repos = await discoverRepos(this.config.workspaceRoots);
@@ -62,6 +74,7 @@ export class CodexKeeperApp {
     const pending = freshPending(chatContext.pending);
     const contextAfterUser = await appendChatHistory(message.chatId, { role: "user", text: message.text });
     const gitUrl = extractGitUrl(message.text);
+    const branchHint = extractBranchHint(message.text);
     if (this.isRepoOnboardingRequest(message.text)) {
       if (!gitUrl) {
         await this.reply(message.chatId, "Send me the git repo URL to clone.");
@@ -74,7 +87,7 @@ export class CodexKeeperApp {
       }
       let cloneResult: Awaited<ReturnType<typeof cloneRepoIntoWorkspace>>;
       try {
-        cloneResult = await cloneRepoIntoWorkspace(root, gitUrl);
+        cloneResult = await cloneRepoIntoWorkspace(root, gitUrl, branchHint);
       } catch (error) {
         await this.reply(message.chatId, `I could not clone that repo: ${error instanceof Error ? error.message : String(error)}`);
         return;
@@ -84,7 +97,7 @@ export class CodexKeeperApp {
       await this.replyForProject(
         message.chatId,
         cloneResult.repo,
-        `${cloneResult.cloned ? "Cloned" : "Using existing clone"} ${cloneResult.repo.name}. I will inspect it as the selected project.`,
+        `${cloneResult.cloned ? "Cloned" : "Using existing clone"} ${cloneResult.repo.name}${branchHint ? ` on branch ${branchHint}` : ""}. I will inspect it as the selected project.`,
       );
       await this.runner.startTask({
         chatId: message.chatId,
@@ -299,6 +312,25 @@ export class CodexKeeperApp {
       taskText,
       fileText: message.fileText,
     });
+  }
+
+  private async withMessageLock<T>(chatId: number, run: () => Promise<T>): Promise<T> {
+    const previous = this.messageQueues.get(chatId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = previous.catch(() => undefined).then(() => gate);
+    this.messageQueues.set(chatId, current);
+    await previous.catch(() => undefined);
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.messageQueues.get(chatId) === current) {
+        this.messageQueues.delete(chatId);
+      }
+    }
   }
 
   private async reply(chatId: number, text: string): Promise<void> {

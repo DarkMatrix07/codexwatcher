@@ -4,7 +4,13 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runCommand } from "../exec.js";
-import { cloneRepoIntoWorkspace, extractGitUrl, repoNameFromGitUrl, resolveRepoFromHint } from "../workspace/workspace.js";
+import {
+  cloneRepoIntoWorkspace,
+  extractBranchHint,
+  extractGitUrl,
+  repoNameFromGitUrl,
+  resolveRepoFromHint,
+} from "../workspace/workspace.js";
 
 const repos = [
   { id: "ecommerce-app", name: "ecommerce-app", path: "/tmp/ecommerce-app" },
@@ -33,9 +39,30 @@ test("extracts git URLs from natural language", () => {
   assert.equal(extractGitUrl("clone git@github.com:DarkMatrix07/codexwatcher.git"), "git@github.com:DarkMatrix07/codexwatcher.git");
 });
 
+test("extracts safe branch hints from natural language", () => {
+  assert.equal(extractBranchHint("clone repo and checkout feature/cart"), "feature/cart");
+  assert.equal(extractBranchHint("use branch release-2026.05"), "release-2026.05");
+  assert.equal(extractBranchHint("use branch ../secret"), null);
+  assert.equal(extractBranchHint("checkout https://github.com/DarkMatrix07/codexwatcher.git"), null);
+});
+
 test("derives safe repo names from git URLs", () => {
   assert.equal(repoNameFromGitUrl("https://github.com/DarkMatrix07/codexwatcher.git"), "codexwatcher");
   assert.equal(repoNameFromGitUrl("file:///tmp/demo-source.git"), "demo-source");
+});
+
+test("cloneRepoIntoWorkspace checks out requested branch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codexwatcher-workspace-"));
+  const workspace = path.join(root, "workspace");
+  const source = await createGitSource(root, "owner", "branchy");
+  await runCommand("git", ["checkout", "-q", "-b", "feature/task"], { cwd: source, timeoutMs: 30_000 });
+  await writeFile(path.join(source, "README.md"), "# Branchy\n\nfeature branch\n", "utf8");
+  await runCommand("git", ["add", "-A"], { cwd: source, timeoutMs: 30_000 });
+  await runCommand("git", ["commit", "-q", "-m", "feature branch"], { cwd: source, timeoutMs: 30_000 });
+
+  const result = await cloneRepoIntoWorkspace(workspace, `file://${source}`, "feature/task");
+  const branch = await runCommand("git", ["branch", "--show-current"], { cwd: result.repo.path, timeoutMs: 30_000 });
+  assert.equal(branch.stdout.trim(), "feature/task");
 });
 
 test("cloneRepoIntoWorkspace rejects basename collisions with different origins", async () => {
