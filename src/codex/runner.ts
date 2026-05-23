@@ -72,6 +72,10 @@ Before coding, read:
 - git status
 - git log --oneline -5
 
+If Git reports dubious ownership or safe.directory errors, rerun read-only Git checks with a per-command safe-directory override for the current repo, for example:
+- git -c safe.directory="$(pwd)" status --short
+- git -c safe.directory="$(pwd)" log --oneline -5
+
 Current task:
 ${input.taskTitle}
 

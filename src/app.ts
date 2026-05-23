@@ -155,7 +155,7 @@ export class CodexKeeperApp {
       );
       return;
     }
-    if (isDevelopment && this.isResumeOnlyRequest(message.text)) {
+    if (this.isResumeOnlyRequest(message.text)) {
       const repo = mentionedProject ?? activeProject ?? (repos.length === 1 ? repos[0] : null);
       if (!repo) {
         await this.reply(

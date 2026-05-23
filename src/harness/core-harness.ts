@@ -7,7 +7,7 @@ import type { BrainClient } from "../brain/brain-client.js";
 import { CycleRunner } from "../cycle/cycle-runner.js";
 import { runCommand } from "../exec.js";
 import { currentCommit } from "../git/git.js";
-import { loadState } from "../state/keeper-files.js";
+import { loadState, readKeeperFile } from "../state/keeper-files.js";
 import type { AgentReview, BrainIntent, BrainPlan, KeeperConfig } from "../types.js";
 
 type HarnessResult = {
@@ -45,6 +45,7 @@ export async function runCoreHarness(): Promise<void> {
     results.push(await testMissingReport(context));
     results.push(await testFailedValidationGate(context));
     results.push(await testReviewFailureBlocks(context));
+    results.push(await testResumeOnlyPreservesTask(context));
     results.push(await testResumeSession(context));
     results.push(await testDirtyRepoCommitBlock(context));
   } finally {
@@ -196,6 +197,35 @@ async function testReviewFailureBlocks(context: HarnessContext): Promise<Harness
     [memory.includes("Review Failed Cycle"), "memory records review failure"],
     [before === after, "no commit was created"],
   ]);
+}
+
+async function testResumeOnlyPreservesTask(context: HarnessContext): Promise<HarnessResult> {
+  await createRepo(context, "demo-resume-preserve", { "README.md": "# Demo Resume Preserve\n" });
+  process.env.CODEXWATCHER_USAGE_FIXTURE = usageFixture(20);
+  process.env.CODEXWATCHER_MOCK_CODEX_MODE = "missing-report";
+  const config = createConfig(context);
+  const replies: string[] = [];
+  const notifications: string[] = [];
+  const originalLog = console.log;
+  console.log = (value?: unknown) => {
+    replies.push(String(value ?? ""));
+  };
+  try {
+    const app = new CodexKeeperApp(config);
+    Object.assign(app as unknown as { runner: CycleRunner }, { runner: createRunner(context, { notify: notifications }) });
+    await app.handleDevMessage("In demo-resume-preserve, update README.md with original saved task marker.");
+    const before = await readKeeperFile(path.join(context.workspaceRoot, "demo-resume-preserve"), "task.md");
+    await app.handleDevMessage("resume development in demo-resume-preserve from the saved state");
+    const after = await readKeeperFile(path.join(context.workspaceRoot, "demo-resume-preserve"), "task.md");
+    return expect("resume-only preserves task", [
+      [before === after, "task.md was not overwritten"],
+      [after.includes("original saved task marker"), "original task remains in task.md"],
+      [!after.toLowerCase().includes("resume development"), "resume wording was not saved as task"],
+      [notifications.some((line) => line.includes("Starting Codex cycle")), "resume triggered a cycle"],
+    ]);
+  } finally {
+    console.log = originalLog;
+  }
 }
 
 async function testResumeSession(context: HarnessContext): Promise<HarnessResult> {

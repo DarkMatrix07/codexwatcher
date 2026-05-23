@@ -1,4 +1,5 @@
 import { runCommand } from "../exec.js";
+import type { CommandResult } from "../types.js";
 
 export type GitSnapshot = {
   status: string;
@@ -8,9 +9,9 @@ export type GitSnapshot = {
 
 export async function getGitSnapshot(repoPath: string): Promise<GitSnapshot> {
   const [status, diff, lastCommit] = await Promise.all([
-    runCommand("git", ["status", "--short"], { cwd: repoPath, timeoutMs: 30_000 }),
-    runCommand("git", ["diff", "--stat"], { cwd: repoPath, timeoutMs: 30_000 }),
-    runCommand("git", ["rev-parse", "--short", "HEAD"], { cwd: repoPath, timeoutMs: 30_000 }),
+    runGit(repoPath, ["status", "--short"], 30_000),
+    runGit(repoPath, ["diff", "--stat"], 30_000),
+    runGit(repoPath, ["rev-parse", "--short", "HEAD"], 30_000),
   ]);
   return {
     status: status.stdout.trim(),
@@ -20,22 +21,22 @@ export async function getGitSnapshot(repoPath: string): Promise<GitSnapshot> {
 }
 
 export async function commitAll(repoPath: string, message: string, paths?: string[]): Promise<string | null> {
-  const status = await runCommand("git", ["status", "--short"], { cwd: repoPath, timeoutMs: 30_000 });
+  const status = await runGit(repoPath, ["status", "--short"], 30_000);
   if (!status.stdout.trim()) {
     return await currentCommit(repoPath);
   }
   await ensureGitIdentity(repoPath);
   const safePaths = sanitizeGitPaths(paths);
   if (safePaths.length) {
-    await runCommand("git", ["add", "-A", "--", ...safePaths], { cwd: repoPath, timeoutMs: 60_000 });
+    await runGit(repoPath, ["add", "-A", "--", ...safePaths], 60_000);
   } else {
-    await runCommand("git", ["add", "-A"], { cwd: repoPath, timeoutMs: 60_000 });
+    await runGit(repoPath, ["add", "-A"], 60_000);
   }
-  const staged = await runCommand("git", ["diff", "--cached", "--quiet"], { cwd: repoPath, timeoutMs: 30_000 });
+  const staged = await runGit(repoPath, ["diff", "--cached", "--quiet"], 30_000);
   if (staged.exitCode === 0) {
     return await currentCommit(repoPath);
   }
-  const commit = await runCommand("git", ["commit", "-m", message], { cwd: repoPath, timeoutMs: 120_000 });
+  const commit = await runGit(repoPath, ["commit", "-m", message], 120_000);
   if (commit.exitCode !== 0) {
     throw new Error(`git commit failed: ${commit.stderr || commit.stdout}`);
   }
@@ -57,22 +58,30 @@ function sanitizeGitPaths(paths: string[] | undefined): string[] {
 }
 
 export async function currentCommit(repoPath: string): Promise<string | null> {
-  const result = await runCommand("git", ["rev-parse", "--short", "HEAD"], { cwd: repoPath, timeoutMs: 30_000 });
+  const result = await runGit(repoPath, ["rev-parse", "--short", "HEAD"], 30_000);
   return result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
 async function ensureGitIdentity(repoPath: string): Promise<void> {
   const [name, email] = await Promise.all([
-    runCommand("git", ["config", "--get", "user.name"], { cwd: repoPath, timeoutMs: 30_000 }),
-    runCommand("git", ["config", "--get", "user.email"], { cwd: repoPath, timeoutMs: 30_000 }),
+    runGit(repoPath, ["config", "--get", "user.name"], 30_000),
+    runGit(repoPath, ["config", "--get", "user.email"], 30_000),
   ]);
   if (name.exitCode !== 0 || !name.stdout.trim()) {
-    await runCommand("git", ["config", "user.name", "CodexWatcher"], { cwd: repoPath, timeoutMs: 30_000 });
+    await runGit(repoPath, ["config", "user.name", "CodexWatcher"], 30_000);
   }
   if (email.exitCode !== 0 || !email.stdout.trim()) {
-    await runCommand("git", ["config", "user.email", "codexwatcher@example.local"], {
-      cwd: repoPath,
-      timeoutMs: 30_000,
-    });
+    await runGit(repoPath, ["config", "user.email", "codexwatcher@example.local"], 30_000);
   }
+}
+
+function runGit(repoPath: string, args: string[], timeoutMs: number): Promise<CommandResult> {
+  return runCommand("git", ["-c", `safe.directory=${safeDirectoryPath(repoPath)}`, ...args], {
+    cwd: repoPath,
+    timeoutMs,
+  });
+}
+
+function safeDirectoryPath(repoPath: string): string {
+  return repoPath.replace(/\\/g, "/");
 }
