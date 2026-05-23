@@ -31,25 +31,16 @@ export async function runCodex(
 ): Promise<CodexRunResult> {
   const command = process.env.CODEXWATCHER_CODEX_COMMAND || "codex";
   const prefixArgs = parseCodexArgsPrefix(process.env.CODEXWATCHER_CODEX_ARGS_PREFIX);
-  let result = await runCommand(command, [...prefixArgs, ...buildCodexArgs({ sessionId, sandboxMode: options.sandboxMode })], {
+  const result = await runCommand(command, [...prefixArgs, ...buildCodexArgs({ sessionId, sandboxMode: options.sandboxMode })], {
     cwd: repoPath,
     input: prompt,
     timeoutMs: 45 * 60_000,
   });
-  let resumeFallbackUsed = false;
-  if (sessionId && result.exitCode !== 0) {
-    resumeFallbackUsed = true;
-    result = await runCommand(command, [...prefixArgs, ...buildCodexArgs({ useLastResume: true, sandboxMode: options.sandboxMode })], {
-      cwd: repoPath,
-      input: prompt,
-      timeoutMs: 45 * 60_000,
-    });
-  }
   const parsedSessionId = extractSessionId(`${result.stdout}\n${result.stderr}`);
   return {
     ...result,
-    sessionId: parsedSessionId ?? (resumeFallbackUsed ? undefined : sessionId),
-    resumeFallbackUsed,
+    sessionId: parsedSessionId ?? sessionId,
+    resumeFallbackUsed: false,
   };
 }
 
@@ -89,6 +80,7 @@ ${input.taskPrompt}
 
 Quota mode: ${input.quotaMode}
 ${input.quotaMode === "caution" ? "Keep this change especially small. Preserve a clear resume note before risky work." : ""}
+${input.quotaMode === "caution" ? "Avoid dependency installs, broad refactors, generated assets, and full-suite runs unless essential. Prefer the cheapest targeted validation." : ""}
 
 Metadata rule:
 - User file restrictions apply to project/source files outside .keeper.
@@ -102,13 +94,15 @@ Rules:
 - Run relevant validation if available.
 - Do not create git commits. CodexWatcher will commit after the report passes review.
 - Stop after this task or the smallest safe checkpoint.
+- If this is an understand/analyze/inspect task without an explicit change request, do not modify project/source files. Update only .keeper progress, memory, and report files with a concise architecture/status summary.
 
 Before you stop, write a machine-readable report to ${reportPath}.
-Use this exact JSON shape:
+Report only facts you verified. Do not invent test results. Use "completed" only when the requested work is fully done and validation passed or was explicitly unnecessary. If work remains or validation failed, use "partial", "blocked", or "failed".
+Use this exact JSON shape, choosing one concrete status value:
 {
   "cycleId": "${input.cycleId}",
   "taskTitle": "${escapeJson(input.taskTitle)}",
-  "status": "completed | partial | blocked | failed",
+  "status": "completed",
   "summary": "...",
   "filesChanged": [],
   "testsRun": [

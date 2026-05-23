@@ -12,12 +12,17 @@ export function decideQuota(
       note: `Codex usage is unavailable${usage.error ? `: ${usage.error}` : ""}. I will not start Codex work until usage can be checked.`,
     };
   }
-  const used = usage.primaryUsedPercent ?? usage.secondaryUsedPercent ?? 0;
+  const windows = [
+    { used: usage.primaryUsedPercent, resetAt: usage.primaryResetAt },
+    { used: usage.secondaryUsedPercent, resetAt: usage.secondaryResetAt },
+  ].filter((window): window is { used: number; resetAt: string | null } => window.used !== null);
+  const limiting = windows.reduce((max, window) => (window.used > max.used ? window : max), windows[0]);
+  const used = limiting.used;
   if (used >= thresholds.pauseThresholdPercent) {
     return {
       mode: "sleep",
       usage,
-      wakeAt: usage.primaryResetAt ?? usage.secondaryResetAt,
+      wakeAt: limiting.resetAt ?? usage.primaryResetAt ?? usage.secondaryResetAt,
       note: `Codex usage is ${used}%, at or above the ${thresholds.pauseThresholdPercent}% pause threshold.`,
     };
   }

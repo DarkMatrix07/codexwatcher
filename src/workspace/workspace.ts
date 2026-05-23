@@ -98,6 +98,11 @@ export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: stri
   const target = path.join(root, name);
   if (await exists(target)) {
     if (await isGitRepo(target)) {
+      const remote = await runCommand("git", ["remote", "get-url", "origin"], { cwd: target, timeoutMs: 30_000 });
+      const currentUrl = remote.exitCode === 0 ? remote.stdout.trim() : "";
+      if (currentUrl && normalizeGitUrl(currentUrl) !== normalizeGitUrl(gitUrl)) {
+        throw new Error(`A different git repo already exists at ${target}. Existing origin: ${redactGitUrl(currentUrl)}`);
+      }
       return {
         cloned: false,
         repo: { id: name.toLowerCase(), name, path: target },
@@ -107,12 +112,27 @@ export async function cloneRepoIntoWorkspace(workspaceRoot: string, gitUrl: stri
   }
   const result = await runCommand("git", ["clone", gitUrl, target], { cwd: root, timeoutMs: 10 * 60_000 });
   if (result.exitCode !== 0) {
-    throw new Error(`git clone failed: ${result.stderr || result.stdout}`);
+    throw new Error(`git clone failed: ${redactGitUrl(result.stderr || result.stdout)}`);
   }
   return {
     cloned: true,
     repo: { id: name.toLowerCase(), name, path: target },
   };
+}
+
+function normalizeGitUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
+}
+
+function redactGitUrl(value: string): string {
+  return value
+    .replace(/(https?:\/\/)([^/@\s]+)@/gi, "$1[REDACTED]@")
+    .replace(/(https?:\/\/[^/:@\s]+:)([^/@\s]+)@/gi, "$1[REDACTED]@");
 }
 
 function normalize(value: string): string {

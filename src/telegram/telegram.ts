@@ -152,7 +152,7 @@ export class TelegramClient {
 
   private isAllowedChat(chatId: number): boolean {
     const allowed = this.config.allowedChatIds;
-    return !allowed?.length || allowed.includes(chatId);
+    return this.config.allowAllChatsUnsafe === true || allowed?.includes(chatId) === true;
   }
 }
 

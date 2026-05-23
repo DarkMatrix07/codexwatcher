@@ -329,7 +329,7 @@ export class CodexKeeperApp {
   private isAllowedChat(chatId: number): boolean {
     if (chatId === 0) return true;
     const allowed = this.config.telegram.allowedChatIds;
-    return !allowed?.length || allowed.includes(chatId);
+    return this.config.telegram.allowAllChatsUnsafe === true || allowed?.includes(chatId) === true;
   }
 
   private async rememberProject(chatId: number, repo: { id?: string; name: string }): Promise<void> {

@@ -294,7 +294,11 @@ export class CycleRunner {
       }
       nextState.resumeNote = `Last completed task: ${params.taskTitle}.`;
       await saveState(params.repoPath, nextState);
-      const commit = await commitAll(params.repoPath, `codexwatcher: ${params.taskTitle}`);
+      const commit = await commitAll(
+        params.repoPath,
+        `codexwatcher: ${params.taskTitle}`,
+        commitPathsForCycle(params.cycleId, report),
+      );
       await this.notify(params.chatId, `Task done: ${params.taskTitle}\nCommit: ${commit ?? "no changes"}\n${review.reply}`);
       return report.nextSuggestedTask ? "continue" : "stop";
     }
@@ -413,4 +417,21 @@ function filterKeeperStatus(status: string): string {
       return file && !file.startsWith(".keeper/");
     })
     .join("\n");
+}
+
+function commitPathsForCycle(cycleId: string, report: CodexReport): string[] {
+  return [
+    ...report.filesChanged,
+    ".keeper/task.md",
+    ".keeper/plan.md",
+    ".keeper/progress.md",
+    ".keeper/memory.md",
+    ".keeper/prompts.md",
+    ".keeper/responses.md",
+    ".keeper/state.json",
+    `.keeper/cycles/${cycleId}/prompt.md`,
+    `.keeper/cycles/${cycleId}/codex-output.log`,
+    `.keeper/cycles/${cycleId}/codex-report.json`,
+    `.keeper/cycles/${cycleId}/agent-review.json`,
+  ];
 }

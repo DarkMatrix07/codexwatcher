@@ -3,7 +3,8 @@
   "telegram": {
     "botToken": "",
     "mode": "polling",
-    "publicWebhookUrl": ""
+    "publicWebhookUrl": "",
+    "allowedChatIds": [123456789]
   },
   "brain": {
     "source": "openclaw",

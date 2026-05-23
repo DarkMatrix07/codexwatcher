@@ -8,6 +8,7 @@ export type KeeperConfig = {
     publicWebhookUrl?: string;
     port?: number;
     allowedChatIds?: number[];
+    allowAllChatsUnsafe?: boolean;
     webhookSecretToken?: string;
   };
   brain: {

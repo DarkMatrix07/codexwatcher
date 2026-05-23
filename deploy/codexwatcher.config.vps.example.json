@@ -4,7 +4,8 @@
     "botToken": "TELEGRAM_BOT_TOKEN",
     "mode": "polling",
     "publicWebhookUrl": "",
-    "allowedChatIds": []
+    "allowedChatIds": [123456789],
+    "webhookSecretToken": "CODEXWATCHER_WEBHOOK_SECRET"
   },
   "brain": {
     "provider": "customclaw",

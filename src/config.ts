@@ -32,6 +32,7 @@ export async function loadConfig(configPath = "codexwatcher.config.json"): Promi
       publicWebhookUrl: raw.telegram?.publicWebhookUrl || process.env.PUBLIC_WEBHOOK_URL,
       port: raw.telegram?.port ?? Number(process.env.PORT ?? 8787),
       allowedChatIds: raw.telegram?.allowedChatIds ?? openClaw?.allowedChatIds,
+      allowAllChatsUnsafe: raw.telegram?.allowAllChatsUnsafe ?? false,
       webhookSecretToken: resolveSecret(raw.telegram?.webhookSecretToken),
     },
     brain: openClaw?.brain ?? {
@@ -83,8 +84,14 @@ function validateConfig(config: KeeperConfig): void {
   if (!["webhook", "polling"].includes(config.telegram.mode)) {
     throw new Error("telegram.mode must be webhook or polling.");
   }
+  if (!config.telegram.allowAllChatsUnsafe && !config.telegram.allowedChatIds?.length) {
+    throw new Error("telegram.allowedChatIds must include at least one chat id, or set telegram.allowAllChatsUnsafe to true.");
+  }
   if (config.telegram.mode === "webhook" && !config.telegram.publicWebhookUrl) {
     throw new Error("telegram.publicWebhookUrl or PUBLIC_WEBHOOK_URL is required for webhook mode.");
+  }
+  if (config.telegram.mode === "webhook" && !config.telegram.webhookSecretToken) {
+    throw new Error("telegram.webhookSecretToken is required for webhook mode.");
   }
   if (!config.brain.baseUrl) {
     throw new Error("brain.baseUrl or CODEXWATCHER_BRAIN_BASE_URL is required.");
