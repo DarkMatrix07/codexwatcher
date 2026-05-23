@@ -155,6 +155,20 @@ export class CodexKeeperApp {
       );
       return;
     }
+    if (isDevelopment && this.isResumeOnlyRequest(message.text)) {
+      const repo = mentionedProject ?? activeProject ?? (repos.length === 1 ? repos[0] : null);
+      if (!repo) {
+        await this.reply(
+          message.chatId,
+          `Which project should I resume? I found: ${repos.map((candidate) => candidate.name).join(", ")}.`,
+        );
+        return;
+      }
+      await this.rememberProject(message.chatId, repo);
+      await appendProjectChatHistory(message.chatId, repo, { role: "user", text: message.text });
+      await this.runner.runAutoCycles(message.chatId, repo.path, repo.name);
+      return;
+    }
     if (this.isStatusRequest(message.text) && !isDevelopment) {
       if (mentionedProject) {
         await this.rememberProject(message.chatId, mentionedProject);
@@ -295,6 +309,11 @@ export class CodexKeeperApp {
         await this.reply(message.chatId, `${resolved.repo.name} is resumed. There is no active task to continue.`);
         return;
       }
+      await this.runner.runAutoCycles(message.chatId, resolved.repo.path, resolved.repo.name);
+      return;
+    }
+    if (this.isResumeOnlyRequest(message.text) && !message.fileText) {
+      await this.rememberProject(message.chatId, resolved.repo);
       await this.runner.runAutoCycles(message.chatId, resolved.repo.path, resolved.repo.name);
       return;
     }
@@ -494,6 +513,34 @@ export class CodexKeeperApp {
       .replace(/[.!?]+/g, "")
       .trim();
     return /^(fix|update|change|make|do|work on|implement|add|build|test|run)\s*(it|that|this)?$/.test(normalized);
+  }
+
+  private isResumeOnlyRequest(text: string): boolean {
+    const normalized = text
+      .toLowerCase()
+      .replace(/[.!?]+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const withoutProject = normalized
+      .replace(/\bin project [a-z0-9._-]+\b/g, "")
+      .replace(/\bin [a-z0-9._-]+\b/g, "")
+      .replace(/\bfor [a-z0-9._-]+\b/g, "")
+      .replace(/\bdevelopment\b/g, "")
+      .replace(/\bfrom (the )?(saved )?(codexwatcher )?state\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      /^(resume|continue|resume saved task|continue saved task|continue the saved task|continue current task|resume current task)$/.test(
+        withoutProject,
+      )
+    ) {
+      return true;
+    }
+    return (
+      /\b(resume|continue)\b/.test(normalized) &&
+      /\b(saved|current|state|development)\b/.test(normalized) &&
+      !/\b(add|fix|implement|implementing|create|update|change|build|write|delete|remove|test)\b/.test(normalized)
+    );
   }
 
   private isProjectOnlyReply(text: string, repo: RepoCandidate): boolean {

@@ -44,6 +44,7 @@ export async function runCoreHarness(): Promise<void> {
     results.push(await testAmbiguousRequests(context));
     results.push(await testMissingReport(context));
     results.push(await testFailedValidationGate(context));
+    results.push(await testReviewFailureBlocks(context));
     results.push(await testResumeSession(context));
     results.push(await testDirtyRepoCommitBlock(context));
   } finally {
@@ -170,6 +171,33 @@ async function testFailedValidationGate(context: HarnessContext): Promise<Harnes
   ]);
 }
 
+async function testReviewFailureBlocks(context: HarnessContext): Promise<HarnessResult> {
+  const repo = await createRepo(context, "demo-review-failure", { "README.md": "# Demo Review Failure\n" });
+  process.env.CODEXWATCHER_USAGE_FIXTURE = usageFixture(20);
+  process.env.CODEXWATCHER_MOCK_CODEX_MODE = "resume-success";
+  process.env.CODEXWATCHER_HARNESS_REVIEW_THROW = "1";
+  const runner = createRunner(context);
+  const before = await currentCommit(repo);
+
+  await runner.startTask({
+    chatId: 0,
+    repoPath: repo,
+    projectId: "demo-review-failure",
+    taskText: "Update README.md, then simulate review failure.",
+  });
+
+  delete process.env.CODEXWATCHER_HARNESS_REVIEW_THROW;
+  const state = await loadState(repo);
+  const memory = await readFile(path.join(repo, ".keeper", "memory.md"), "utf8");
+  const after = await currentCommit(repo);
+  return expect("review failure blocks", [
+    [state?.status === "blocked", `state is ${state?.status}`],
+    [state?.resumeNote?.includes("review failed") === true, `resume note: ${state?.resumeNote}`],
+    [memory.includes("Review Failed Cycle"), "memory records review failure"],
+    [before === after, "no commit was created"],
+  ]);
+}
+
 async function testResumeSession(context: HarnessContext): Promise<HarnessResult> {
   const repo = await createRepo(context, "demo-resume-session", { "README.md": "# Demo Resume Session\n" });
   await writeFile(context.argsLog, "", "utf8");
@@ -276,6 +304,9 @@ function createHarnessBrain(): {
       };
     },
     async review(input) {
+      if (process.env.CODEXWATCHER_HARNESS_REVIEW_THROW === "1") {
+        throw new Error("simulated review outage");
+      }
       const report = input.codexReport as {
         testsRun?: Array<{ status?: string }>;
         remainingWork?: string[];
@@ -481,6 +512,7 @@ function restoreHarnessEnv(context: HarnessContext): void {
   }
   delete process.env.CODEXWATCHER_MOCK_CODEX_MODE;
   delete process.env.CODEXWATCHER_MOCK_CODEX_ARGS_LOG;
+  delete process.env.CODEXWATCHER_HARNESS_REVIEW_THROW;
 }
 
 async function assertCommand(command: string, args: string[], cwd: string): Promise<void> {

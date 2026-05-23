@@ -7,10 +7,11 @@ export function runCommand(
   options: { cwd?: string; input?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
+    const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
-      shell: false,
+      shell: useShell,
       windowsHide: true,
     });
     let stdout = "";
@@ -42,9 +43,20 @@ export function runCommand(
       if (timeout) clearTimeout(timeout);
       resolve({ exitCode, stdout, stderr });
     });
-    if (options.input) {
-      child.stdin.write(options.input);
+    try {
+      if (options.input) {
+        child.stdin.write(options.input);
+      }
+      child.stdin.end();
+    } catch (error) {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve({
+        exitCode: null,
+        stdout,
+        stderr: `${stderr}\n${error instanceof Error ? error.message : String(error)}`,
+      });
     }
-    child.stdin.end();
   });
 }

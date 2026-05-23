@@ -256,7 +256,34 @@ export class CycleRunner {
       return "stop";
     }
 
-    const review = await this.reviewReport(params.repoPath, params.taskTitle, report);
+    let review: AgentReview;
+    try {
+      review = await this.reviewReport(params.repoPath, params.taskTitle, report);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await appendKeeperFile(
+        params.repoPath,
+        "memory.md",
+        `\n## Review Failed Cycle ${params.cycleId}\n\nTask: ${params.taskTitle}\nCodex wrote a valid report, but the brain review failed before commit.\n\nError: ${message}\n` ,
+      );
+      await saveState(params.repoPath, {
+        ...(params.previousState ?? {
+          projectId: params.projectId,
+          repoPath: params.repoPath,
+          status: "blocked",
+          updatedAt: new Date().toISOString(),
+        }),
+        activeChatId: params.chatId,
+        status: "blocked",
+        codexSessionId: run.sessionId ?? params.sessionId,
+        lastCycleId: params.cycleId,
+        currentTask: params.taskTitle,
+        resumeNote: `Cycle ${params.cycleId} has a valid Codex report, but review failed: ${message}`,
+        updatedAt: new Date().toISOString(),
+      });
+      await this.notify(params.chatId, `Review failed after Codex wrote a report for cycle ${params.cycleId}. I blocked instead of committing.`);
+      return "stop";
+    }
     await saveAgentReview(params.repoPath, params.cycleId, review);
     const complete =
       report.status === "completed" &&
